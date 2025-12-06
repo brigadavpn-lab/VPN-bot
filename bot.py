@@ -1,0 +1,365 @@
+import telebot
+import sqlite3
+from telebot import types
+import subprocess
+import json
+import uuid
+from datetime import datetime, timedelta
+import qrcode
+import io
+import urllib.parse
+import os  # <-- НОВЫЙ ИМПОРТ
+from dotenv import load_dotenv # <-- НОВЫЙ ИМПОРТ
+
+# Загружаем секреты из файла .env
+load_dotenv()
+
+# ----- НАСТРОЙКИ -----
+# Берем токен из .env
+TOKEN = os.getenv("BOT_TOKEN")
+# Берем ID админа из .env и превращаем в число
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+
+# Проверка, что файл .env прочитался
+if not TOKEN or not ADMIN_ID:
+    print("ОШИБКА: Не найдены BOT_TOKEN или ADMIN_ID в файле .env")
+    exit()
+
+# Пути к файлам (ЛУЧШЕ ИСПОЛЬЗОВАТЬ ПОЛНЫЕ ПУТИ)
+DB_NAME = "/root/vpn-bot/vpn_users.db"
+CONFIG_FILE_PATH = "/usr/local/etc/xray/config.json"
+PDF_PATH = "/root/vpn-bot/instruction.pdf" 
+
+# Лимиты
+BETA_LIMIT = 30
+
+# Настройки VLESS (Твои данные)
+SERVER_ADDRESS = "141.105.143.224"
+SERVER_PORT = 443
+REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
+REALITY_SHORT_ID = "a028507ab5b114b4"
+REALITY_SNI = "www.yahoo.com"
+
+# Память для отзывов
+user_states = {} 
+
+bot = telebot.TeleBot(TOKEN)
+
+# --- ФУНКЦИИ ---
+
+def generate_vless_link(user_uuid):
+    """Генерация ссылки VLESS Reality"""
+    params = {
+        "security": "reality",
+        "sni": REALITY_SNI,
+        "pbk": REALITY_PUBLIC_KEY,
+        "sid": REALITY_SHORT_ID,
+        "flow": "xtls-rprx-vision",
+        "type": "tcp"
+    }
+    query_string = urllib.parse.urlencode(params)
+    link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#BetaTest"
+    return link
+
+def generate_qr_code(link):
+    """Генерация QR-кода"""
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(link)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = io.BytesIO()
+    img.save(bio, 'PNG')
+    bio.seek(0)
+    return bio
+
+def create_xray_user():
+    """Создание пользователя в конфиге Xray"""
+    try:
+        new_uuid = str(uuid.uuid4())
+        new_email = f"beta_user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        new_client = {
+            "id": new_uuid,
+            "flow": "xtls-rprx-vision",
+            "email": new_email,
+            "level": 0
+        }
+        with open(CONFIG_FILE_PATH, 'r') as f:
+            data = json.load(f)
+        data['inbounds'][1]['settings']['clients'].append(new_client)
+        with open(CONFIG_FILE_PATH, 'w') as f:
+            json.dump(data, f, indent=2)
+        subprocess.run(["systemctl", "restart", "xray"], check=True)
+        return new_uuid, new_email
+    except Exception as e:
+        print(f"ОШИБКА Xray: {e}")
+        return None, None
+
+def add_user_to_db(user_id, xray_uuid, email):
+    """Добавление в базу"""
+    try:
+        trial_end = datetime.now() + timedelta(days=30)
+        trial_end_str = trial_end.strftime('%Y-%m-%d')
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO users (telegram_id, xray_uuid, email, trial_end_date, status) VALUES (?, ?, ?, ?, 'active')",
+            (user_id, xray_uuid, email, trial_end_str)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"ОШИБКА БД: {e}")
+        return False
+
+def check_user_exists(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+    return True if user else False
+
+def count_total_users():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+def extend_user_trial(target_user_id, days):
+    """Продление подписки (для админа)"""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT trial_end_date FROM users WHERE telegram_id = ?", (target_user_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            conn.close()
+            return False, "Пользователь не найден."
+
+        current_end_str = result[0]
+        try:
+            current_end_date = datetime.strptime(current_end_str, '%Y-%m-%d')
+        except:
+            current_end_date = datetime.now()
+
+        now = datetime.now()
+        if current_end_date < now:
+            new_end_date = now + timedelta(days=days)
+        else:
+            new_end_date = current_end_date + timedelta(days=days)
+            
+        new_end_str = new_end_date.strftime('%Y-%m-%d')
+        
+        cursor.execute("UPDATE users SET trial_end_date = ?, status = 'active' WHERE telegram_id = ?", (new_end_str, target_user_id,))
+        conn.commit()
+        conn.close()
+        return True, new_end_str
+    except Exception as e:
+        return False, f"Ошибка: {e}"
+
+# --- ОБРАБОТЧИКИ БОТА ---
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.chat.id
+    # Проверяем, знает ли бот этого человека
+    user_data = check_user_exists(user_id)
+
+    keyboard = types.InlineKeyboardMarkup()
+
+    if user_data:
+        # ВАРИАНТ А: СТАРЫЙ ДРУГ
+        # Добавляем кнопки управления
+        btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
+        btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
+        btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
+        
+        # add добавляет кнопку на новую строку, row добавляет несколько в одну строку
+        keyboard.add(btn_profile)
+        keyboard.add(btn_instruction, btn_support)
+        
+        text = "С возвращением! 👋\nГлавное меню:"
+    else:
+        # ВАРИАНТ Б: НОВИЧОК
+        btn_get = types.InlineKeyboardButton("🚀 Получить VPN (подписка на 30 дней)", callback_data="get_vpn")
+        keyboard.add(btn_get)
+        text = (
+            "Привет! Это частный VPN бот Олегыч. 🛡\n\n"
+            "Жми кнопку, чтобы получить доступ 👇"
+        )
+    
+    bot.send_message(user_id, text, reply_markup=keyboard)
+
+# --- КОМАНДА АДМИНА (КОТОРУЮ ТЫ ИСКАЛА) ---
+@bot.message_handler(commands=['add_time'])
+def add_time_handler(message):
+    if message.chat.id != ADMIN_ID:
+        return # Игнорируем чужаков
+
+    try:
+        parts = message.text.split()
+        if len(parts) != 3:
+            bot.send_message(message.chat.id, "⚠️ Формат: `/add_time ID ДНИ`")
+            return
+        
+        target_id = int(parts[1])
+        days = int(parts[2])
+
+        success, result_text = extend_user_trial(target_id, days)
+        
+        if success:
+            bot.send_message(message.chat.id, f"✅ Подписка продлена до {result_text}")
+            try:
+                bot.send_message(target_id, f"🎉 Ваша подписка продлена на {days} дней!\nДействует до: {result_text}")
+            except:
+                pass
+        else:
+            bot.send_message(message.chat.id, f"❌ Ошибка: {result_text}")
+
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ ID и дни должны быть числами!")
+
+# --- ОБРАБОТКА ОТЗЫВОВ ---
+@bot.message_handler(commands=['Обратная связь'])
+def request_feedback(message):
+    user_id = message.chat.id
+    user_states[user_id] = "waiting_feedback"
+    bot.send_message(user_id, "Я готов слушать! ✍️\nНапишите свой отзыв одним сообщением.")
+
+# ВНИМАНИЕ: Эта функция теперь СНАРУЖИ, как и должно быть
+@bot.message_handler(content_types=['text'])
+def handle_text(message):
+    user_id = message.chat.id
+    if user_states.get(user_id) == "waiting_feedback":
+        feedback_text = message.text
+        admin_message = (
+            f"🔔 Новый фидбэк от {user_id} (@{message.from_user.username}):\n\n"
+            f"{feedback_text}"
+        )
+        bot.send_message(ADMIN_ID, admin_message)
+        del user_states[user_id]
+        bot.send_message(user_id, "Спасибо! Передал админу 👍")
+    else:
+        pass
+
+# --- НАЖАТИЕ КНОПОК ---
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    if call.data == "get_vpn":
+        
+        user_id = call.message.chat.id
+        bot.answer_callback_query(call.id, text="Проверяю базу...")
+
+        if check_user_exists(user_id):
+            bot.send_message(user_id, "Вы уже получили свой ключ. 😕")
+            return
+
+        if count_total_users() >= BETA_LIMIT:
+            bot.send_message(user_id, "Лимит бета-тестеров исчерпан. 😥")
+            return
+
+        bot.send_message(user_id, "Создаю личный ключ... ⚙️")
+
+        new_uuid, new_email = create_xray_user()
+
+        if new_uuid:
+            add_user_to_db(user_id, new_uuid, new_email)
+            bot.send_message(user_id, "✅ Ключ создан!")
+
+            # Ссылка и QR
+            vless_link = generate_vless_link(new_uuid)
+            qr_image = generate_qr_code(vless_link)
+
+            bot.send_photo(user_id, qr_image, caption="Отсканируйте QR-код в v2rayNG / V2Box")
+            bot.send_message(user_id, f"Или скопируйте ссылку:\n`{vless_link}`", parse_mode="Markdown")
+            
+            # Отправка Инструкции (PDF)
+            try:
+                if PDF_PATH: # Проверяем, задан ли путь
+                    with open(PDF_PATH, 'rb') as pdf_file:
+                        bot.send_document(user_id, pdf_file, caption="Инструкция по настройке 🤓")
+            except Exception as e:
+                print(f"Ошибка PDF: {e}")
+                # Не пугаем юзера ошибкой, просто молчим про PDF
+        else:
+            bot.send_message(user_id, "❌ Ошибка сервера. Напишите админу.")
+# ... (тут выше был код для "get_vpn", его не трогаем) ...
+
+    # --- НОВАЯ ЧАСТЬ НАЧИНАЕТСЯ ЗДЕСЬ ---
+
+    # 2. КНОПКА "МОЙ ПРОФИЛЬ"
+    elif call.data == "my_profile":
+        # Делаем запрос в базу за конкретными полями
+        conn = sqlite3.connect(DB_NAME)
+        cur = conn.cursor()
+        cur.execute("SELECT trial_end_date, status FROM users WHERE telegram_id=?", (user_id,))
+        data = cur.fetchone()
+        conn.close()
+
+        if not data:
+            bot.send_message(user_id, "Ошибка: профиль не найден.")
+            return
+
+        # Распаковываем данные
+        end_date_str = data[0]
+        status = data[1]
+
+        # Выбираем красивый значок
+        status_emoji = "✅ Активен" if status == 'active' else "🔴 Отключен"
+        if status == 'banned': status_emoji = "🚫 Заблокирован"
+
+        profile_text = (
+            f"👤 **Личный кабинет**\n\n"
+            f"🔑 Текущий статус: {status_emoji}\n"
+            f"📅 Подписка истекает: **{end_date_str}**\n\n"
+            f"🆔 Ваш ID: `{user_id}`"
+        )
+        
+        # Кнопки внутри профиля
+        kb = types.InlineKeyboardMarkup()
+        btn_pay = types.InlineKeyboardButton("💳 Продлить подписку", callback_data="pay_extend")
+        btn_back = types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu")
+        kb.add(btn_pay)
+        kb.add(btn_back)
+        
+        # edit_message_text меняет старое сообщение на новое (чтобы не спамить)
+        bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text=profile_text, reply_markup=kb, parse_mode="Markdown")
+
+    # 3. КНОПКА "ПРОДЛИТЬ" (Показываем реквизиты)
+    elif call.data == "pay_extend":
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 Назад", callback_data="my_profile"))
+        
+        # Берем текст из переменной PAYMENT_INFO (которую мы задали вверху)
+        bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text=PAYMENT_INFO, reply_markup=kb, parse_mode="Markdown")
+
+    # 4. КНОПКА "НАЗАД В МЕНЮ"
+    elif call.data == "back_menu":
+        # Рисуем то же самое меню, что и в /start
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile"))
+        kb.add(types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction"), types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support"))
+        
+        bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="Главное меню:", reply_markup=kb)
+
+    # 5. ИНСТРУКЦИЯ (Если у тебя есть файл PDF)
+    elif call.data == "get_instruction":
+        try:
+            with open(PDF_PATH, 'rb') as f:
+                bot.send_document(user_id, f, caption="Инструкция по настройке")
+        except:
+            bot.answer_callback_query(call.id, "Файл инструкции пока не загружен")
+            
+    # 6. ПОДДЕРЖКА
+    elif call.data == "ask_support":
+        bot.send_message(user_id, "✍️ Напишите свой вопрос следующим сообщением, я передам его Админу.")
+        # Запоминаем, что этот человек хочет написать админу
+        user_states[user_id] = "waiting_feedback"
+# --- ЗАПУСК ---
+print("Бот запущен...")
+bot.infinity_polling(timeout=10, long_polling_timeout=5)
