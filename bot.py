@@ -10,6 +10,8 @@ import io
 import urllib.parse
 import os  # <-- НОВЫЙ ИМПОРТ
 from dotenv import load_dotenv # <-- НОВЫЙ ИМПОРТ
+import random
+import time
 
 # Загружаем секреты из файла .env
 load_dotenv()
@@ -28,7 +30,7 @@ if not TOKEN or not ADMIN_ID:
 # Пути к файлам (ЛУЧШЕ ИСПОЛЬЗОВАТЬ ПОЛНЫЕ ПУТИ)
 DB_NAME = "/root/vpn-bot/vpn_users.db"
 CONFIG_FILE_PATH = "/usr/local/etc/xray/config.json"
-PDF_PATH = "/root/vpn-bot/instruction.pdf" 
+PDF_PATH = "/root/vpn-bot/instruction.pdf"
 
 # Лимиты
 BETA_LIMIT = 30
@@ -41,7 +43,7 @@ REALITY_SHORT_ID = "a028507ab5b114b4"
 REALITY_SNI = "www.yahoo.com"
 
 # Память для отзывов
-user_states = {} 
+user_states = {}
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -133,10 +135,10 @@ def extend_user_trial(target_user_id, days):
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT trial_end_date FROM users WHERE telegram_id = ?", (target_user_id,))
         result = cursor.fetchone()
-        
+
         if not result:
             conn.close()
             return False, "Пользователь не найден."
@@ -152,9 +154,9 @@ def extend_user_trial(target_user_id, days):
             new_end_date = now + timedelta(days=days)
         else:
             new_end_date = current_end_date + timedelta(days=days)
-            
+
         new_end_str = new_end_date.strftime('%Y-%m-%d')
-        
+
         cursor.execute("UPDATE users SET trial_end_date = ?, status = 'active' WHERE telegram_id = ?", (new_end_str, target_user_id,))
         conn.commit()
         conn.close()
@@ -173,17 +175,20 @@ def send_welcome(message):
     keyboard = types.InlineKeyboardMarkup()
 
     if user_data:
+        if user_data:
         # ВАРИАНТ А: СТАРЫЙ ДРУГ
-        # Добавляем кнопки управления
-        btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
-        btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
-        btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
-        
-        # add добавляет кнопку на новую строку, row добавляет несколько в одну строку
-        keyboard.add(btn_profile)
-        keyboard.add(btn_instruction, btn_support)
-        
-        text = "С возвращением! 👋\nГлавное меню:"
+        # Создаем кнопки
+            btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
+            btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
+            btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
+            btn_matrix = types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix")
+
+            # Добавляем их на клавиатуру (СТРОГО ПО ОДНОМУ РАЗУ)
+            keyboard.add(btn_profile)
+            keyboard.add(btn_instruction, btn_support)
+            keyboard.add(btn_matrix)
+
+            text = "С возвращением! 👋\nГлавное меню:"
     else:
         # ВАРИАНТ Б: НОВИЧОК
         btn_get = types.InlineKeyboardButton("🚀 Получить VPN (подписка на 30 дней)", callback_data="get_vpn")
@@ -192,8 +197,82 @@ def send_welcome(message):
             "Привет! Это частный VPN бот Олегыч. 🛡\n\n"
             "Жми кнопку, чтобы получить доступ 👇"
         )
-    
+
     bot.send_message(user_id, text, reply_markup=keyboard)
+
+@bot.message_handler(commands=['matrix'])
+def send_matrix_status(message):
+    # Заглушка трафика
+    traffic_gb = 14.5
+
+    # 1. Генерация данных
+    matrix_x = random.randint(10, 99)
+    matrix_y = random.randint(10, 99)
+    matrix_z = random.randint(10, 99)
+    matrix_code = hex(random.getrandbits(32)).upper()[2:]
+
+    # Генерируем "Пинг" (от 25 до 110 мс) для вида
+    ping_ms = random.randint(25, 110)
+
+    kana = ["ｸ", "ﾗ", "ｽ", "ﾂ", "ﾇ", "ﾎ", "ﾑ", "ｴ", "ｷ", "ﾏ", "ﾅ", "ﾔ"]
+    deco = random.choice(kana) + random.choice(kana) + random.choice(kana)
+
+    user_label = message.from_user.username or message.from_user.first_name or "NEO"
+
+    # 2. Арт с добавленным ПИНГОМ
+    matrix_text = f"""```
+┌── 🈯️ M A T R I X 🈯️ ───────────────┐
+│  SYS.ROOT: ENABLED                 │
+└────────────────────────────────────┘
+ ❇️ NEURAL LINK: ESTABLISHED
+ ❇️ ENCRYPTION: {deco}
+
+ 👤 USER: {user_label[:10]}...
+ 🌐 NODE: [{matrix_x}.{matrix_y}.{matrix_z}]
+ 🔑 KEY:  {matrix_code}
+
+ ╔═══════════════════════════════════╗
+ ║  🟢 TRAFFIC ANALYSIS              ║
+ ╠═══════════════════════════════════╣
+ ║                                   ║
+ ║  ⬇️ USED:    {traffic_gb:6.2f} GB          ║
+ ║  📶 LATENCY: {ping_ms} ms               ║
+ ║  ⚡️ STATUS:  {'CONNECTED 🟢' if traffic_gb < 40 else 'OVERLOAD 🔴'}      ║
+ ║                                   ║
+ ╚═══════════════════════════════════╝
+
+ 🧩 01001000 01000101 01001100 01001111
+
+ "Follow the white rabbit. 🐇"
+```"""
+
+    # 3. Анимация
+    msg = bot.send_message(message.chat.id, "🔌 Connecting to the Source...")
+    time.sleep(1)
+    bot.edit_message_text("💾 Uploading consciousness...", chat_id=message.chat.id, message_id=msg.message_id)
+    time.sleep(1.5)
+
+    # 4. Отправка
+    bot.send_message(message.chat.id, matrix_text, parse_mode="Markdown")
+
+    # 5. Шутка
+    jokes = [
+        "🧪 Есть только два способа написать код без багов... но третий тебе не понравится.",
+        "🕶️ Wake up, Neo. Твой VPN подключен.",
+        "💊 Это твой последний шанс. После этого пути назад нет.Синяя таблетка — пинг 300мс. Красная таблетка — пинг 30мс. Выбирай.",
+        "🐇 Тук-тук, это провайдер. Шучу, мы зашифрованы.",
+        "😎 Я не сказал, что будет легко. Я лишь обещал открыть правду"
+    ]
+    time.sleep(1)
+    bot.send_message(message.chat.id, random.choice(jokes))
+
+# Обработчик нажатия на кнопку "Матрица"
+@bot.callback_query_handler(func=lambda call: call.data == 'show_matrix')
+def callback_matrix(call):
+    # Чтобы кнопка не "крутилась", отвечаем телеграму, что мы приняли сигнал
+    bot.answer_callback_query(call.id)
+    # И просто запускаем ту же самую функцию, что и для команды /matrix
+    send_matrix_status(call.message)
 
 # --- КОМАНДА АДМИНА (КОТОРУЮ ТЫ ИСКАЛА) ---
 @bot.message_handler(commands=['add_time'])
@@ -206,12 +285,12 @@ def add_time_handler(message):
         if len(parts) != 3:
             bot.send_message(message.chat.id, "⚠️ Формат: `/add_time ID ДНИ`")
             return
-        
+
         target_id = int(parts[1])
         days = int(parts[2])
 
         success, result_text = extend_user_trial(target_id, days)
-        
+
         if success:
             bot.send_message(message.chat.id, f"✅ Подписка продлена до {result_text}")
             try:
@@ -251,7 +330,7 @@ def handle_text(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     if call.data == "get_vpn":
-        
+
         user_id = call.message.chat.id
         bot.answer_callback_query(call.id, text="Проверяю базу...")
 
@@ -277,7 +356,7 @@ def handle_callback(call):
 
             bot.send_photo(user_id, qr_image, caption="Отсканируйте QR-код в v2rayNG / V2Box")
             bot.send_message(user_id, f"Или скопируйте ссылку:\n`{vless_link}`", parse_mode="Markdown")
-            
+
             # Отправка Инструкции (PDF)
             try:
                 if PDF_PATH: # Проверяем, задан ли путь
@@ -319,14 +398,14 @@ def handle_callback(call):
             f"📅 Подписка истекает: **{end_date_str}**\n\n"
             f"🆔 Ваш ID: `{user_id}`"
         )
-        
+
         # Кнопки внутри профиля
         kb = types.InlineKeyboardMarkup()
         btn_pay = types.InlineKeyboardButton("💳 Продлить подписку", callback_data="pay_extend")
         btn_back = types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu")
         kb.add(btn_pay)
         kb.add(btn_back)
-        
+
         # edit_message_text меняет старое сообщение на новое (чтобы не спамить)
         bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text=profile_text, reply_markup=kb, parse_mode="Markdown")
 
@@ -334,7 +413,7 @@ def handle_callback(call):
     elif call.data == "pay_extend":
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("🔙 Назад", callback_data="my_profile"))
-        
+
         # Берем текст из переменной PAYMENT_INFO (которую мы задали вверху)
         bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text=PAYMENT_INFO, reply_markup=kb, parse_mode="Markdown")
 
@@ -344,7 +423,7 @@ def handle_callback(call):
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile"))
         kb.add(types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction"), types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support"))
-        
+
         bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="Главное меню:", reply_markup=kb)
 
     # 5. ИНСТРУКЦИЯ (Если у тебя есть файл PDF)
@@ -354,7 +433,7 @@ def handle_callback(call):
                 bot.send_document(user_id, f, caption="Инструкция по настройке")
         except:
             bot.answer_callback_query(call.id, "Файл инструкции пока не загружен")
-            
+
     # 6. ПОДДЕРЖКА
     elif call.data == "ask_support":
         bot.send_message(user_id, "✍️ Напишите свой вопрос следующим сообщением, я передам его Админу.")
