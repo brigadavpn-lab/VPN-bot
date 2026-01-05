@@ -42,6 +42,18 @@ REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
 REALITY_SHORT_ID = "a028507ab5b114b4"
 REALITY_SNI = "www.yahoo.com"
 
+# Текст для оплаты (ЗАПОЛНИ ЗДЕСЬ СВОИ РЕКВИЗИТЫ)
+PAYMENT_INFO = """
+💳 **Реквизиты для продления:**
+
+Перевод по СБП (Сбер/Тинькофф):
+`+7 999 000-00-00`
+Получатель: Иван И.
+
+💰 Стоимость: 100р / месяц
+❗️ В комментарии к платежу укажите ваш ID телеграм.
+"""
+
 # Память для отзывов
 user_states = {}
 
@@ -175,20 +187,19 @@ def send_welcome(message):
     keyboard = types.InlineKeyboardMarkup()
 
     if user_data:
-        if user_data:
         # ВАРИАНТ А: СТАРЫЙ ДРУГ
         # Создаем кнопки
-            btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
-            btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
-            btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
-            btn_matrix = types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix")
+        btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
+        btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
+        btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
+        btn_matrix = types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix")
 
-            # Добавляем их на клавиатуру (СТРОГО ПО ОДНОМУ РАЗУ)
-            keyboard.add(btn_profile)
-            keyboard.add(btn_instruction, btn_support)
-            keyboard.add(btn_matrix)
+        # Добавляем их на клавиатуру (СТРОГО ПО ОДНОМУ РАЗУ)
+        keyboard.add(btn_profile)
+        keyboard.add(btn_instruction, btn_support)
+        keyboard.add(btn_matrix)
 
-            text = "С возвращением! 👋\nГлавное меню:"
+        text = "С возвращением! 👋\nГлавное меню:"
     else:
         # ВАРИАНТ Б: НОВИЧОК
         btn_get = types.InlineKeyboardButton("🚀 Получить VPN (подписка на 30 дней)", callback_data="get_vpn")
@@ -329,9 +340,9 @@ def handle_text(message):
 # --- НАЖАТИЕ КНОПОК ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    if call.data == "get_vpn":
+    user_id = call.message.chat.id
 
-        user_id = call.message.chat.id
+    if call.data == "get_vpn":
         bot.answer_callback_query(call.id, text="Проверяю базу...")
 
         if check_user_exists(user_id):
@@ -423,6 +434,7 @@ def handle_callback(call):
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile"))
         kb.add(types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction"), types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support"))
+        kb.add(types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix"))
 
         bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="Главное меню:", reply_markup=kb)
 
