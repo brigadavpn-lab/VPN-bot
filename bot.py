@@ -62,8 +62,7 @@ PAYMENT_INFO = """
 # Настройки VLESS Reality (синхронизированы с config.json)
 SERVER_ADDRESS = "141.105.143.224"
 SERVER_PORT = 443
-# ⚠️ ВАЖНО: Замените на PUBLIC KEY из команды 'xray x25519' на сервере
-REALITY_PUBLIC_KEY = "REPLACE_WITH_PUBLIC_KEY_FROM_XRAY_X25519"
+REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
 REALITY_SHORT_ID = "a028507ab5b114b4"
 REALITY_SNI = "www.yahoo.com"
 
