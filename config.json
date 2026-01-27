@@ -24,8 +24,9 @@
   },
   "dns": {
     "servers": [
-      "1.1.1.1",
-      "8.8.8.8"
+      "https://dns.google/dns-query",
+      "8.8.8.8",
+      "1.1.1.1"
     ]
   },
   "inbounds": [
@@ -83,7 +84,7 @@
           "http",
           "tls"
         ],
-        "metadataOnly": false
+        "metadataOnly": true
       }
     }
   ],
@@ -98,7 +99,7 @@
     }
   ],
   "routing": {
-    "domainStrategy": "IPIfNonMatch",
+    "domainStrategy": "AsIs",
     "rules": [
       {
         "type": "field",
