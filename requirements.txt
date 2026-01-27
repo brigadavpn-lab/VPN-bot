@@ -1,0 +1,20 @@
+# VPN Telegram Bot - Dependencies
+
+# Telegram Bot API
+pyTelegramBotAPI==4.14.0
+
+# Environment variables
+python-dotenv==1.0.0
+
+# QR Code generation
+qrcode[pil]==7.4.2
+
+# Image processing (required by qrcode)
+Pillow==10.1.0
+
+# Database (built-in, no need to install)
+# sqlite3
+
+# For future statistics and graphs (optional, install when needed)
+# matplotlib==3.8.2
+# numpy==1.26.2
