@@ -14,7 +14,7 @@
   "policy": {
     "levels": {
       "0": {
-        "handshake": 4,
+        "handshake": 10,
         "connIdle": 300,
         "uplinkOnly": 2,
         "downlinkOnly": 5,
@@ -24,10 +24,11 @@
   },
   "dns": {
     "servers": [
-      "8.8.8.8",
-      "1.1.1.1"
-    ],
-    "queryStrategy": "UseIPv4"
+      "https://security.cloudflare-dns.com/dns-query",
+      "1.1.1.2",
+      "1.0.0.2",
+      "8.8.8.8"
+    ]
   },
   "inbounds": [
     {
@@ -60,11 +61,14 @@
           "show": false,
           "dest": "www.yahoo.com:443",
           "serverNames": [
-            "www.yahoo.com"
+            "www.yahoo.com",
+            "www.google.com"
           ],
           "privateKey": "wOiTaDowpzwUQdQphQbaEhCiQhIfJHOwRVd4y0jdEF4",
           "shortIds": [
-            "a028507ab5b114b4"
+            "a028507ab5b114b4",
+            "1a2b3c4d",
+            "deadbeef"
           ]
         },
         "tcpSettings": {
@@ -82,9 +86,9 @@
         "enabled": true,
         "destOverride": [
           "http",
-          "tls"
-        ],
-        "metadataOnly": true
+          "tls",
+          "quic"
+        ]
       }
     }
   ],
@@ -96,24 +100,28 @@
     {
       "tag": "blocked",
       "protocol": "blackhole"
+    },
+    {
+      "tag": "api",
+      "protocol": "freedom"
     }
   ],
   "routing": {
-    "domainStrategy": "AsIs",
+    "domainStrategy": "IPIfNonMatch",
     "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api"
+      },
       {
         "type": "field",
         "ip": [
           "geoip:private"
         ],
         "outboundTag": "blocked"
-      },
-      {
-        "type": "field",
-        "domain": [
-          "geosite:google"
-        ],
-        "outboundTag": "direct"
       },
       {
         "type": "field",
