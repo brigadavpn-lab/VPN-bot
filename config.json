@@ -92,8 +92,7 @@
           "quic"
         ],
         "metadataOnly": false
-      },
-      "tag": "vless-in"
+      }
     }
   ],
   "outbounds": [
@@ -114,7 +113,7 @@
         "inboundTag": [
           "api"
         ],
-        "outboundTag": "api"
+        "outboundTag": "direct"
       },
       {
         "type": "field",
