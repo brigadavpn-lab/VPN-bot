@@ -24,10 +24,10 @@
   },
   "dns": {
     "servers": [
-      "https://dns.google/dns-query",
       "8.8.8.8",
       "1.1.1.1"
-    ]
+    ],
+    "queryStrategy": "UseIPv4"
   },
   "inbounds": [
     {
@@ -107,6 +107,13 @@
           "geoip:private"
         ],
         "outboundTag": "blocked"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:google"
+        ],
+        "outboundTag": "direct"
       },
       {
         "type": "field",
