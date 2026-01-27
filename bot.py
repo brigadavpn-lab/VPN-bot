@@ -259,11 +259,13 @@ def send_welcome(message):
     if user_exists:
         # ВАРИАНТ А: СТАРЫЙ ДРУГ
         btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
+        btn_traffic = types.InlineKeyboardButton("📊 Мой трафик", callback_data="my_traffic")
         btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
         btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
         btn_matrix = types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix")
 
         keyboard.add(btn_profile)
+        keyboard.add(btn_traffic)
         keyboard.add(btn_instruction, btn_support)
         keyboard.add(btn_matrix)
 
@@ -534,11 +536,13 @@ def handle_callback(call):
 
         kb = types.InlineKeyboardMarkup()
         btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
+        btn_traffic = types.InlineKeyboardButton("📊 Мой трафик", callback_data="my_traffic")
         btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
         btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
         btn_matrix = types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix")
 
         kb.add(btn_profile)
+        kb.add(btn_traffic)
         kb.add(btn_instruction, btn_support)
         kb.add(btn_matrix)
 
@@ -567,6 +571,142 @@ def handle_callback(call):
         bot.answer_callback_query(call.id)
         bot.send_message(user_id, "✍️ Напишите свой вопрос следующим сообщением, я передам его Админу.")
         user_states[user_id] = "waiting_feedback"
+
+    # 7. МОЙ ТРАФИК
+    elif call.data == "my_traffic":
+        bot.answer_callback_query(call.id)
+
+        try:
+            with sqlite3.connect(DB_NAME) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT traffic_used FROM users WHERE telegram_id=?", (user_id,))
+                result = cur.fetchone()
+
+            if not result:
+                bot.send_message(user_id, "Ошибка: данные не найдены.")
+                return
+
+            traffic_bytes = result[0] if result[0] else 0
+            traffic_gb = traffic_bytes / (1024**3)
+
+            # Получаем лимит из .env
+            limit_gb = int(os.getenv("TRAFFIC_LIMIT_GB", "50"))
+            remaining_gb = max(0, limit_gb - traffic_gb)
+            percent_used = (traffic_gb / limit_gb * 100) if limit_gb > 0 else 0
+
+            # Выбираем эмодзи в зависимости от использования
+            if percent_used < 50:
+                emoji = "🟢"
+            elif percent_used < 80:
+                emoji = "🟡"
+            else:
+                emoji = "🔴"
+
+            traffic_text = (
+                f"📊 **Использование трафика**\n\n"
+                f"{emoji} Использовано: **{traffic_gb:.2f} ГБ** / {limit_gb} ГБ\n"
+                f"📦 Осталось: **{remaining_gb:.2f} ГБ**\n"
+                f"📈 Процент: **{percent_used:.1f}%**\n\n"
+            )
+
+            if percent_used >= 80:
+                traffic_text += "⚠️ Вы близки к лимиту! При превышении доступ будет заблокирован."
+
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu"))
+
+            bot.send_message(user_id, traffic_text, reply_markup=kb, parse_mode="Markdown")
+
+        except Exception as e:
+            logger.error(f"Ошибка в my_traffic: {e}")
+            bot.send_message(user_id, "Произошла ошибка при получении данных о трафике.")
+
+# --- КОМАНДЫ АДМИНИСТРАТОРА ---
+
+@bot.message_handler(commands=['stats'])
+def show_stats(message):
+    """Показать статистику по всем пользователям (только для админа)"""
+    if message.chat.id != ADMIN_ID:
+        logger.warning(f"Попытка использовать /stats от {message.chat.id}")
+        return
+
+    try:
+        with sqlite3.connect(DB_NAME) as conn:
+            cur = conn.cursor()
+
+            # Общая статистика
+            cur.execute("SELECT COUNT(*) FROM users")
+            total_users = cur.fetchone()[0]
+
+            cur.execute("SELECT COUNT(*) FROM users WHERE status='active'")
+            active_users = cur.fetchone()[0]
+
+            cur.execute("SELECT COUNT(*) FROM users WHERE status='banned'")
+            banned_users = cur.fetchone()[0]
+
+            # Топ-5 по трафику
+            cur.execute("""
+                SELECT telegram_id, email, traffic_used
+                FROM users
+                ORDER BY traffic_used DESC
+                LIMIT 5
+            """)
+            top_users = cur.fetchall()
+
+        stats_text = (
+            f"📊 **Статистика VPN бота**\n\n"
+            f"👥 Всего пользователей: **{total_users}**\n"
+            f"✅ Активных: **{active_users}**\n"
+            f"🚫 Заблокированных: **{banned_users}**\n\n"
+            f"🔝 **Топ-5 по трафику:**\n"
+        )
+
+        if top_users:
+            for idx, (tid, email, traffic) in enumerate(top_users, 1):
+                traffic_gb = (traffic if traffic else 0) / (1024**3)
+                stats_text += f"{idx}. {email}: {traffic_gb:.2f} ГБ\n"
+        else:
+            stats_text += "Нет данных\n"
+
+        bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
+        logger.info(f"Администратор {ADMIN_ID} запросил статистику")
+
+    except Exception as e:
+        logger.error(f"Ошибка в /stats: {e}")
+        bot.send_message(message.chat.id, f"❌ Ошибка получения статистики: {e}")
+
+@bot.message_handler(commands=['cleanup_now'])
+def cleanup_now(message):
+    """Запустить очистку просроченных пользователей вручную (только для админа)"""
+    if message.chat.id != ADMIN_ID:
+        logger.warning(f"Попытка использовать /cleanup_now от {message.chat.id}")
+        return
+
+    try:
+        bot.send_message(message.chat.id, "🧹 Запуск очистки просроченных пользователей...")
+
+        # Импортируем функции из cleanup.py
+        import sys
+        sys.path.append('/root/vpn-bot')
+        from cleanup import remove_expired_users, notify_expiring_users
+
+        # Отправляем напоминания
+        notify_expiring_users()
+
+        # Удаляем просроченных
+        removed_count = remove_expired_users()
+
+        bot.send_message(
+            message.chat.id,
+            f"✅ Очистка завершена\n\nУдалено пользователей: **{removed_count}**",
+            parse_mode="Markdown"
+        )
+
+        logger.info(f"Администратор {ADMIN_ID} запустил ручную очистку, удалено: {removed_count}")
+
+    except Exception as e:
+        logger.error(f"Ошибка в /cleanup_now: {e}")
+        bot.send_message(message.chat.id, f"❌ Ошибка при очистке: {e}")
 
 # --- ЗАПУСК ---
 if __name__ == "__main__":
