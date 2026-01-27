@@ -4,7 +4,6 @@
     "error": "/var/log/xray/error.log",
     "loglevel": "warning"
   },
-  "stats": {},
   "api": {
     "tag": "api",
     "services": [
@@ -13,12 +12,6 @@
     ]
   },
   "policy": {
-    "system": {
-      "statsInboundUplink": true,
-      "statsInboundDownlink": true,
-      "statsOutboundUplink": true,
-      "statsOutboundDownlink": true
-    },
     "levels": {
       "0": {
         "handshake": 4,
@@ -108,13 +101,6 @@
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
-      {
-        "type": "field",
-        "inboundTag": [
-          "api"
-        ],
-        "outboundTag": "direct"
-      },
       {
         "type": "field",
         "ip": [
