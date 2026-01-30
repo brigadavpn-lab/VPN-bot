@@ -1,0 +1,169 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "dns": {
+    "hosts": {
+      "dns.google": "8.8.8.8",
+      "security.cloudflare-dns.com": "1.1.1.1"
+    },
+    "servers": [
+      {
+        "address": "fakedns",
+        "domains": [
+          "geosite:google",
+          "geosite:netflix",
+          "geosite:facebook",
+          "domain:gemini.google.com"
+        ]
+      },
+      "https://security.cloudflare-dns.com/dns-query",
+      "1.1.1.2",
+      "1.0.0.2",
+      "8.8.8.8"
+    ]
+  },
+  "fakedns": [
+    {
+      "ipPool": "198.18.0.0/15",
+      "poolSize": 10000
+    }
+  ],
+  "inbounds": [
+    {
+      "port": 12334,
+      "protocol": "mixed",
+      "listen": "127.0.0.1",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "fakedns",
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": false
+      },
+      "tag": "mixed-in"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "141.105.143.224",
+            "port": 443,
+            "users": [
+              {
+                "id": "REPLACE_WITH_YOUR_UUID",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision",
+                "level": 0
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": "chrome",
+          "serverName": "www.yahoo.com",
+          "publicKey": "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM",
+          "shortId": "a028507ab5b114b4",
+          "spiderX": ""
+        },
+        "tcpSettings": {
+          "header": {
+            "type": "none"
+          }
+        },
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpNoDelay": true
+        }
+      },
+      "tag": "proxy"
+    },
+    {
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIP"
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "settings": {
+        "response": {
+          "type": "http"
+        }
+      },
+      "tag": "block"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "domain": [
+          "regexp:.*\\.ru$",
+          "regexp:.*\\.su$",
+          "geosite:ru"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "domain": [
+          "regexp:.*\\.org$"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "proxy",
+        "domain": [
+          "domain:google.com",
+          "domain:googleapis.com",
+          "domain:googleusercontent.com",
+          "domain:gstatic.com",
+          "domain:gemini.google.com",
+          "geosite:google"
+        ]
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "proxy"
+      }
+    ]
+  },
+  "policy": {
+    "levels": {
+      "0": {
+        "handshake": 4,
+        "connIdle": 300,
+        "uplinkOnly": 2,
+        "downlinkOnly": 5,
+        "bufferSize": 512
+      }
+    },
+    "system": {
+      "statsOutboundUplink": true,
+      "statsOutboundDownlink": true
+    }
+  }
+}
