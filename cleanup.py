@@ -36,36 +36,25 @@ def remove_expired_users():
 
     log(f"Найдено {len(expired_users)} просроченных пользователей. Начинаю удаление...")
 
-    # 3. Читаем конфиг Xray
+    # 3. Удаляем из конфига Xray (из всех VLESS inbound-ов)
     try:
-        with open(CONFIG_FILE, 'r') as f:
-            config_data = json.load(f)
+        from xray_config import load_config, save_config, remove_clients_by_email, restart_xray
+
+        config_data = load_config()
     except Exception as e:
         log(f"ОШИБКА: Не могу прочитать config.json: {e}")
         conn.close()
         return
 
-    # 4. Удаляем из конфига
-    # Получаем список клиентов
-    clients = config_data['inbounds'][1]['settings']['clients']
-
-    # Собираем emails тех, кого надо удалить (для удобства фильтрации)
     emails_to_remove = [u[2] for u in expired_users]
-    # Оставляем только тех, кого НЕТ в списке на удаление
-    # (Фильтруем список: оставляем клиента, ТОЛЬКО ЕСЛИ его email НЕ в списке удаления)
-    new_clients = [c for c in clients if c.get('email') not in emails_to_remove]
+    removed = remove_clients_by_email(config_data, emails_to_remove)
 
-    # Проверяем, изменилось ли что-то
-    if len(new_clients) == len(clients):
+    if removed == 0:
         log("Внимание: Пользователи найдены в БД, но не найдены в Config.json. Удаляю только из БД.")
     else:
-        # Записываем обновленный список обратно
-        config_data['inbounds'][1]['settings']['clients'] = new_clients
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config_data, f, indent=2)
-        # Перезапускаем Xray
+        save_config(config_data)
         try:
-            subprocess.run(["systemctl", "restart", "xray"], check=True)
+            restart_xray()
             log("Xray успешно перезапущен.")
         except Exception as e:
             log(f"ОШИБКА при перезапуске Xray: {e}")
