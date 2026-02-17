@@ -107,23 +107,18 @@ def check_limits_and_block():
         log(f"Ошибка при проверке лимитов: {e}")
 
 def block_users_in_config(emails_to_block):
-    """Удаляет из конфига Xray и метит в БД как banned"""
+    """Удаляет из всех VLESS inbound-ов Xray и метит в БД как banned"""
     try:
-        with open(CONFIG_FILE, 'r') as f:
-            config = json.load(f)
-        
-        clients = config['inbounds'][1]['settings']['clients']
-        new_clients = [c for c in clients if c.get('email') not in emails_to_block]
-        
-        if len(new_clients) == len(clients):
+        from xray_config import load_config, save_config, remove_clients_by_email, restart_xray
+
+        config = load_config()
+        removed = remove_clients_by_email(config, emails_to_block)
+
+        if removed == 0:
             return
 
-        config['inbounds'][1]['settings']['clients'] = new_clients
-        
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f, indent=2)
-        
-        subprocess.run(["systemctl", "restart", "xray"], check=True)
+        save_config(config)
+        restart_xray()
 
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()

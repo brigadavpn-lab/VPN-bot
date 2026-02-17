@@ -35,12 +35,27 @@ PDF_PATH = "/root/vpn-bot/instruction.pdf"
 # Лимиты
 BETA_LIMIT = 30
 
-# Настройки VLESS (Твои данные)
+# Настройки VLESS Reality
 SERVER_ADDRESS = "141.105.143.224"
-SERVER_PORT = 443
+PRIMARY_PORT = 443
+BACKUP_PORT = 8443
 REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
-REALITY_SHORT_ID = "a028507ab5b114b4"
-REALITY_SNI = "www.yahoo.com"
+
+# Несколько shortId для разнообразия отпечатков (должны совпадать с серверным конфигом)
+REALITY_SHORT_IDS = [
+    "a028507ab5b114b4",
+    "b139618bc6c225c5",
+    "c24a729cd7d336d6",
+]
+
+# Несколько SNI — домены, которые опасно блокировать целиком (должны совпадать с serverNames в серверном конфиге)
+REALITY_SNIS = [
+    "www.microsoft.com",
+    "www.google.com",
+    "dl.google.com",
+    "www.apple.com",
+    "gateway.icloud.com",
+]
 
 # Память для отзывов
 user_states = {}
@@ -49,19 +64,31 @@ bot = telebot.TeleBot(TOKEN)
 
 # --- ФУНКЦИИ ---
 
-def generate_vless_link(user_uuid):
-    """Генерация ссылки VLESS Reality"""
+def generate_vless_link(user_uuid, port=None):
+    """Генерация ссылки VLESS Reality с случайным SNI и shortId"""
+    sni = random.choice(REALITY_SNIS)
+    sid = random.choice(REALITY_SHORT_IDS)
+    if port is None:
+        port = PRIMARY_PORT
     params = {
         "security": "reality",
-        "sni": REALITY_SNI,
+        "sni": sni,
         "pbk": REALITY_PUBLIC_KEY,
-        "sid": REALITY_SHORT_ID,
+        "sid": sid,
         "flow": "xtls-rprx-vision",
         "type": "tcp"
     }
     query_string = urllib.parse.urlencode(params)
-    link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#BetaTest"
+    label = "VPN" if port == PRIMARY_PORT else "VPN-Backup"
+    link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{port}?{query_string}#{label}"
     return link
+
+def generate_all_links(user_uuid):
+    """Генерация основного и запасного линков"""
+    return [
+        generate_vless_link(user_uuid, port=PRIMARY_PORT),
+        generate_vless_link(user_uuid, port=BACKUP_PORT),
+    ]
 
 def generate_qr_code(link):
     """Генерация QR-кода"""
@@ -75,8 +102,12 @@ def generate_qr_code(link):
     return bio
 
 def create_xray_user():
-    """Создание пользователя в конфиге Xray"""
+    """Создание пользователя в конфиге Xray (добавляет в оба TCP inbound-а)"""
     try:
+        from xray_config import (
+            load_config, save_config, add_client_to_inbounds,
+            restart_xray, TCP_TAGS
+        )
         new_uuid = str(uuid.uuid4())
         new_email = f"beta_user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         new_client = {
@@ -85,12 +116,10 @@ def create_xray_user():
             "email": new_email,
             "level": 0
         }
-        with open(CONFIG_FILE_PATH, 'r') as f:
-            data = json.load(f)
-        data['inbounds'][1]['settings']['clients'].append(new_client)
-        with open(CONFIG_FILE_PATH, 'w') as f:
-            json.dump(data, f, indent=2)
-        subprocess.run(["systemctl", "restart", "xray"], check=True)
+        config = load_config()
+        add_client_to_inbounds(config, new_client, tags=TCP_TAGS)
+        save_config(config)
+        restart_xray()
         return new_uuid, new_email
     except Exception as e:
         print(f"ОШИБКА Xray: {e}")
@@ -350,12 +379,21 @@ def handle_callback(call):
             add_user_to_db(user_id, new_uuid, new_email)
             bot.send_message(user_id, "✅ Ключ создан!")
 
-            # Ссылка и QR
-            vless_link = generate_vless_link(new_uuid)
-            qr_image = generate_qr_code(vless_link)
+            # Основной и запасной линки
+            links = generate_all_links(new_uuid)
 
-            bot.send_photo(user_id, qr_image, caption="Отсканируйте QR-код в v2rayNG / V2Box")
-            bot.send_message(user_id, f"Или скопируйте ссылку:\n`{vless_link}`", parse_mode="Markdown")
+            # Основной — с QR-кодом
+            qr_image = generate_qr_code(links[0])
+            bot.send_photo(user_id, qr_image, caption="🔑 Основной сервер (порт 443)\nОтсканируйте QR-код в v2rayNG / V2Box")
+            bot.send_message(user_id, f"Основная ссылка:\n`{links[0]}`", parse_mode="Markdown")
+
+            # Запасной — текстом
+            bot.send_message(
+                user_id,
+                f"🔐 Запасная ссылка (порт 8443):\n"
+                f"Если основная перестанет работать, добавьте этот профиль:\n`{links[1]}`",
+                parse_mode="Markdown"
+            )
 
             # Отправка Инструкции (PDF)
             try:
