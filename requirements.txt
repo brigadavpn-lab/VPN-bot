@@ -1,0 +1,7 @@
+pyTelegramBotAPI
+python-dotenv
+qrcode[pil]
+Pillow
+yookassa
+flask
+requests
