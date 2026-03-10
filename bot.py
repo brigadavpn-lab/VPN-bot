@@ -735,6 +735,7 @@ def handle_callback(call):
 
     # 7. МОЙ ПРОФИЛЬ
     elif call.data == "my_profile":
+        bot.answer_callback_query(call.id)
         conn = sqlite3.connect(DB_NAME)
         cur = conn.cursor()
         cur.execute("SELECT trial_end_date, status FROM users WHERE telegram_id=?", (user_id,))
@@ -764,10 +765,13 @@ def handle_callback(call):
         kb.add(types.InlineKeyboardButton("🔑 Мой ключ VPN", callback_data="get_my_key"))
         kb.add(types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu"))
 
-        bot.edit_message_text(
-            chat_id=user_id, message_id=call.message.message_id,
-            text=profile_text, reply_markup=kb, parse_mode="Markdown"
-        )
+        try:
+            bot.edit_message_text(
+                chat_id=user_id, message_id=call.message.message_id,
+                text=profile_text, reply_markup=kb, parse_mode="Markdown"
+            )
+        except:
+            bot.send_message(user_id, profile_text, reply_markup=kb, parse_mode="Markdown")
 
     # 8. ПОЛУЧИТЬ МОЙ КЛЮЧ
     elif call.data == "get_my_key":
@@ -782,6 +786,7 @@ def handle_callback(call):
 
     # 9. НАЗАД В МЕНЮ
     elif call.data == "back_menu":
+        bot.answer_callback_query(call.id)
         kb = types.InlineKeyboardMarkup()
         user_exists = check_user_exists(user_id)
         if user_exists:
@@ -795,21 +800,26 @@ def handle_callback(call):
             kb.add(types.InlineKeyboardButton("🚀 Получить VPN (бесплатно)", callback_data="get_vpn"))
             kb.add(types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service"))
 
-        bot.edit_message_text(
-            chat_id=user_id, message_id=call.message.message_id,
-            text="Главное меню:", reply_markup=kb
-        )
+        try:
+            bot.edit_message_text(
+                chat_id=user_id, message_id=call.message.message_id,
+                text="Главное меню:", reply_markup=kb
+            )
+        except:
+            bot.send_message(user_id, "Главное меню:", reply_markup=kb)
 
     # 10. ИНСТРУКЦИЯ
     elif call.data == "get_instruction":
+        bot.answer_callback_query(call.id)
         try:
             with open(PDF_PATH, 'rb') as f:
                 bot.send_document(user_id, f, caption="Инструкция по настройке")
         except:
-            bot.answer_callback_query(call.id, "Файл инструкции пока не загружен")
+            bot.send_message(user_id, "Файл инструкции пока не загружен.")
 
     # 11. ПОДДЕРЖКА
     elif call.data == "ask_support":
+        bot.answer_callback_query(call.id)
         bot.send_message(user_id, "✍️ Напишите свой вопрос следующим сообщением, я передам его Админу.")
         user_states[user_id] = "waiting_feedback"
 
