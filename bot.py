@@ -432,6 +432,49 @@ def confirm_payment_handler(message):
         bot.send_message(ADMIN_ID, "❌ USER_ID должен быть числом!")
 
 
+# --- SLASH-КОМАНДЫ ---
+@bot.message_handler(commands=['profile'])
+def cmd_profile(message):
+    user_id = message.chat.id
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT trial_end_date, status FROM users WHERE telegram_id=?", (user_id,))
+    data = cur.fetchone()
+    conn.close()
+    if not data:
+        bot.send_message(user_id, "❌ Профиль не найден. Нажмите /start")
+        return
+    end_date_str, status = data[0], data[1]
+    status_emoji = "✅ Активен" if status == 'active' else ("🚫 Заблокирован" if status == 'banned' else "🔴 Отключен")
+    profile_text = (
+        f"👤 *Личный кабинет*\n\n"
+        f"🔑 Текущий статус: {status_emoji}\n"
+        f"📅 Подписка истекает: *{end_date_str}*\n\n"
+        f"🆔 Ваш ID: `{user_id}`"
+    )
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service"))
+    kb.add(types.InlineKeyboardButton("🔑 Мой ключ VPN", callback_data="get_my_key"))
+    kb.add(types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu"))
+    bot.send_message(user_id, profile_text, reply_markup=kb, parse_mode="Markdown")
+
+
+@bot.message_handler(commands=['instruction'])
+def cmd_instruction(message):
+    try:
+        with open(PDF_PATH, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="📖 Инструкция по настройке")
+    except Exception:
+        bot.send_message(message.chat.id, "📖 Файл инструкции пока не загружен.")
+
+
+@bot.message_handler(commands=['support'])
+def cmd_support(message):
+    user_id = message.chat.id
+    bot.send_message(user_id, "✍️ Напишите свой вопрос следующим сообщением, я передам его Админу.")
+    user_states[user_id] = "waiting_feedback"
+
+
 # --- ОБРАБОТКА ДОКУМЕНТОВ (PDF для договора/политики) ---
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
