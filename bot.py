@@ -363,10 +363,6 @@ def send_matrix_status(message):
     bot.send_message(message.chat.id, random.choice(jokes))
 
 
-@bot.callback_query_handler(func=lambda call: call.data == 'show_matrix')
-def callback_matrix(call):
-    bot.answer_callback_query(call.id)
-    send_matrix_status(call.message)
 
 
 # --- КОМАНДА АДМИНА ---
@@ -582,6 +578,23 @@ def _process_successful_payment_for_user(telegram_id, payment_id=None):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     user_id = call.message.chat.id
+    print(f"[CALLBACK] user_id={user_id} data={call.data!r}")
+    try:
+        _handle_callback_inner(call, user_id)
+    except Exception as e:
+        print(f"[CALLBACK ERROR] data={call.data!r} error={e}")
+        try:
+            bot.answer_callback_query(call.id, "⚠️ Ошибка. Попробуйте ещё раз.")
+        except:
+            pass
+
+
+def _handle_callback_inner(call, user_id):
+    # 0. МАТРИЦА
+    if call.data == "show_matrix":
+        bot.answer_callback_query(call.id)
+        send_matrix_status(call.message)
+        return
 
     # 1. КНОПКА "ПОЛУЧИТЬ VPN (бесплатно)"
     if call.data == "get_vpn":
