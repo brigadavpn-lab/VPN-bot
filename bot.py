@@ -293,9 +293,7 @@ def send_welcome(message):
 
         text = "С возвращением! 👋\nГлавное меню:"
     else:
-        btn_get = types.InlineKeyboardButton("🚀 Получить VPN (бесплатно)", callback_data="get_vpn")
         btn_pay_service = types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service")
-        keyboard.add(btn_get)
         keyboard.add(btn_pay_service)
         text = (
             "Привет! Это частный VPN бот Олегыч. 🛡\n\n"
@@ -639,39 +637,8 @@ def _handle_callback_inner(call, user_id):
         send_matrix_status(call.message)
         return
 
-    # 1. КНОПКА "ПОЛУЧИТЬ VPN (бесплатно)"
-    if call.data == "get_vpn":
-        bot.answer_callback_query(call.id, text="Проверяю базу...")
-
-        if check_user_exists(user_id):
-            bot.send_message(user_id, "Вы уже получили свой ключ. 😕")
-            return
-
-        bot.send_message(user_id, "Создаю личный ключ... ⚙️")
-
-        new_uuid, new_email = create_xray_user()
-
-        if new_uuid:
-            add_user_to_db(user_id, new_uuid, new_email, payment_type='beta')
-            bot.send_message(user_id, "✅ Ключ создан!")
-
-            vless_link = generate_vless_link(new_uuid)
-            qr_image = generate_qr_code(vless_link)
-
-            bot.send_photo(user_id, qr_image, caption="Отсканируйте QR-код в v2rayNG / V2Box")
-            bot.send_message(user_id, f"Или скопируйте ссылку:\n`{vless_link}`", parse_mode="Markdown")
-
-            try:
-                if PDF_PATH:
-                    with open(PDF_PATH, 'rb') as pdf_file:
-                        bot.send_document(user_id, pdf_file, caption="Инструкция по настройке 🤓")
-            except Exception as e:
-                print(f"Ошибка PDF: {e}")
-        else:
-            bot.send_message(user_id, "❌ Ошибка сервера. Напишите админу.")
-
-    # 2. УСЛУГА "VPN НА МЕСЯЦ"
-    elif call.data == "vpn_service":
+    # 1. УСЛУГА "VPN НА МЕСЯЦ"
+    if call.data == "vpn_service":
         bot.answer_callback_query(call.id)
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("💳 Оформить заказ", callback_data="place_order"))
@@ -853,7 +820,6 @@ def _handle_callback_inner(call, user_id):
                 types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
             )
         else:
-            kb.add(types.InlineKeyboardButton("🚀 Получить VPN (бесплатно)", callback_data="get_vpn"))
             kb.add(types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service"))
 
         try:
