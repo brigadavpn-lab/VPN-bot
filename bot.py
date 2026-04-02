@@ -40,7 +40,8 @@ SERVER_ADDRESS = "141.105.143.224"
 SERVER_PORT = 443
 REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
 REALITY_SHORT_ID = "a028507ab5b114b4"
-REALITY_SNI = "www.yahoo.com"
+REALITY_SNI = "www.microsoft.com"   # yahoo.com заблокирован в РФ — меняем на microsoft.com
+REALITY_FINGERPRINT = "chrome"      # uTLS Chrome fingerprint — маскировка под браузер
 
 # Память для отзывов
 user_states = {}
@@ -53,14 +54,17 @@ def generate_vless_link(user_uuid):
     """Генерация ссылки VLESS Reality"""
     params = {
         "security": "reality",
+        "encryption": "none",
         "sni": REALITY_SNI,
         "pbk": REALITY_PUBLIC_KEY,
         "sid": REALITY_SHORT_ID,
+        "fp": REALITY_FINGERPRINT,
         "flow": "xtls-rprx-vision",
-        "type": "tcp"
+        "type": "tcp",
+        "spx": "/"
     }
     query_string = urllib.parse.urlencode(params)
-    link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#BetaTest"
+    link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#BrigadaVPN"
     return link
 
 def generate_qr_code(link):
