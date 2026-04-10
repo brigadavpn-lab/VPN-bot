@@ -36,7 +36,7 @@ PDF_PATH = "/root/vpn-bot/instruction.pdf"
 BETA_LIMIT = 30
 
 # Настройки VLESS (Твои данные)
-SERVER_ADDRESS = "141.105.143.224"
+SERVER_ADDRESS = "89.125.3.8"
 SERVER_PORT = 443
 REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
 REALITY_SHORT_ID = "a028507ab5b114b4"
