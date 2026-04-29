@@ -36,8 +36,13 @@ REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
 REALITY_SHORT_ID = "a028507ab5b114b4"
 REALITY_SNI = "www.yahoo.com"
 
-# Цена услуги
-SERVICE_PRICE = 99
+# Тарифы VPN (hours — длительность в часах)
+PLANS = {
+    "1h": {"label": "1 час",   "price": 15,  "hours": 1},
+    "1d": {"label": "1 день",  "price": 49,  "hours": 24},
+    "3d": {"label": "3 дня",   "price": 99,  "hours": 72},
+    "7d": {"label": "7 дней",  "price": 199, "hours": 168},
+}
 
 # YooKassa
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
@@ -106,11 +111,11 @@ def create_xray_user(email_prefix="beta_user"):
         return None, None
 
 
-def add_user_to_db(user_id, xray_uuid, email, payment_type='beta'):
-    """Добавление в базу"""
+def add_user_to_db(user_id, xray_uuid, email, payment_type='paid', hours=24):
+    """Добавление в базу. Возвращает trial_end_str при успехе, None при ошибке."""
     try:
-        trial_end = datetime.now() + timedelta(days=30)
-        trial_end_str = trial_end.strftime('%Y-%m-%d')
+        trial_end = datetime.now() + timedelta(hours=hours)
+        trial_end_str = trial_end.strftime('%Y-%m-%d %H:%M')
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute(
@@ -120,10 +125,10 @@ def add_user_to_db(user_id, xray_uuid, email, payment_type='beta'):
         )
         conn.commit()
         conn.close()
-        return True
+        return trial_end_str
     except Exception as e:
         print(f"ОШИБКА БД: {e}")
-        return False
+        return None
 
 
 def check_user_exists(user_id):
@@ -156,8 +161,12 @@ def get_user_vless_link(user_id):
     return None
 
 
-def extend_user_trial(target_user_id, days):
-    """Продление подписки"""
+def extend_user_trial(target_user_id, hours=None, days=None):
+    """Продление подписки. Принимает hours или days (days * 24)."""
+    if hours is None and days is not None:
+        hours = days * 24
+    if hours is None:
+        hours = 24
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
@@ -170,18 +179,23 @@ def extend_user_trial(target_user_id, days):
             return False, "Пользователь не найден."
 
         current_end_str = result[0]
-        try:
-            current_end_date = datetime.strptime(current_end_str, '%Y-%m-%d')
-        except:
+        current_end_date = None
+        for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
+            try:
+                current_end_date = datetime.strptime(current_end_str, fmt)
+                break
+            except ValueError:
+                pass
+        if current_end_date is None:
             current_end_date = datetime.now()
 
         now = datetime.now()
         if current_end_date < now:
-            new_end_date = now + timedelta(days=days)
+            new_end_date = now + timedelta(hours=hours)
         else:
-            new_end_date = current_end_date + timedelta(days=days)
+            new_end_date = current_end_date + timedelta(hours=hours)
 
-        new_end_str = new_end_date.strftime('%Y-%m-%d')
+        new_end_str = new_end_date.strftime('%Y-%m-%d %H:%M')
 
         cursor.execute(
             "UPDATE users SET trial_end_date = ?, status = 'active' WHERE telegram_id = ?",
@@ -194,7 +208,7 @@ def extend_user_trial(target_user_id, days):
         return False, f"Ошибка: {e}"
 
 
-def create_yookassa_payment(telegram_id):
+def create_yookassa_payment(telegram_id, price, hours, description):
     """Создание платежа в YooKassa"""
     if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
         return None, None
@@ -209,7 +223,7 @@ def create_yookassa_payment(telegram_id):
         idempotency_key = str(uuid.uuid4())
         payment = YKPayment.create({
             "amount": {
-                "value": f"{SERVICE_PRICE}.00",
+                "value": f"{price:.2f}",
                 "currency": "RUB"
             },
             "confirmation": {
@@ -217,19 +231,20 @@ def create_yookassa_payment(telegram_id):
                 "return_url": return_url
             },
             "capture": True,
-            "description": "VPN подписка на 1 месяц",
+            "description": description,
             "metadata": {
                 "telegram_id": str(telegram_id)
             }
         }, idempotency_key)
 
-        # Сохраняем платёж в БД
+        # Сохраняем платёж в БД вместе с длительностью тарифа
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT OR REPLACE INTO pending_payments (payment_id, telegram_id, created_at, status) "
-            "VALUES (?, ?, ?, 'pending')",
-            (payment.id, telegram_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            "INSERT OR REPLACE INTO pending_payments "
+            "(payment_id, telegram_id, created_at, status, duration_hours) "
+            "VALUES (?, ?, ?, 'pending', ?)",
+            (payment.id, telegram_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), hours)
         )
         conn.commit()
         conn.close()
@@ -281,7 +296,7 @@ def send_welcome(message):
 
     if user_data:
         btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
-        btn_pay_service = types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service")
+        btn_pay_service = types.InlineKeyboardButton("🛡 Тарифы VPN", callback_data="vpn_service")
         btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
         btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
         btn_matrix = types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix")
@@ -293,7 +308,7 @@ def send_welcome(message):
 
         text = "С возвращением! 👋\nГлавное меню:"
     else:
-        btn_pay_service = types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service")
+        btn_pay_service = types.InlineKeyboardButton("🛡 Тарифы VPN", callback_data="vpn_service")
         keyboard.add(btn_pay_service)
         text = (
             "Привет! Это частный VPN бот Олегыч. 🛡\n\n"
@@ -378,7 +393,7 @@ def add_time_handler(message):
         target_id = int(parts[1])
         days = int(parts[2])
 
-        success, result_text = extend_user_trial(target_id, days)
+        success, result_text = extend_user_trial(target_id, days=days)
 
         if success:
             bot.send_message(message.chat.id, f"✅ Подписка продлена до {result_text}")
@@ -451,7 +466,7 @@ def cmd_profile(message):
         f"🆔 Ваш ID: `{user_id}`"
     )
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service"))
+    kb.add(types.InlineKeyboardButton("🛡 Тарифы VPN", callback_data="vpn_service"))
     kb.add(types.InlineKeyboardButton("🔑 Мой ключ VPN", callback_data="get_my_key"))
     kb.add(types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu"))
     bot.send_message(user_id, profile_text, reply_markup=kb, parse_mode="Markdown")
@@ -527,41 +542,49 @@ def handle_text(message):
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ОПЛАТЫ ---
 
+def _get_payment_hours(payment_id):
+    """Читает duration_hours из pending_payments. Возвращает 24 если не найдено."""
+    if not payment_id or payment_id.startswith("manual_"):
+        return 24
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT duration_hours FROM pending_payments WHERE payment_id = ?", (payment_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else 24
+    except Exception:
+        return 24
+
+
 def _process_successful_payment_for_user(telegram_id, payment_id=None):
     """Обработка успешной оплаты: создаёт или продлевает подписку и выдаёт ключ."""
+    hours = _get_payment_hours(payment_id)
+
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-
-    cursor.execute("SELECT xray_uuid, trial_end_date FROM users WHERE telegram_id = ?", (telegram_id,))
+    cursor.execute("SELECT xray_uuid FROM users WHERE telegram_id = ?", (telegram_id,))
     existing = cursor.fetchone()
+    conn.close()
 
     if existing:
-        # Продлеваем существующую подписку
         xray_uuid = existing[0]
-        current_end_str = existing[1]
-        try:
-            current_end = datetime.strptime(current_end_str, '%Y-%m-%d')
-        except:
-            current_end = datetime.now()
-
-        now = datetime.now()
-        new_end = (current_end if current_end > now else now) + timedelta(days=30)
-        new_end_str = new_end.strftime('%Y-%m-%d')
-
-        cursor.execute(
-            "UPDATE users SET trial_end_date = ?, status = 'active', payment_type = 'paid' WHERE telegram_id = ?",
-            (new_end_str, telegram_id)
-        )
-        conn.commit()
+        success, new_end_str = extend_user_trial(telegram_id, hours=hours)
+        if not success:
+            bot.send_message(telegram_id, "❌ Ошибка продления подписки. Напишите в поддержку.")
+            return
 
         if payment_id:
-            cursor.execute(
-                "UPDATE pending_payments SET status = 'paid' WHERE payment_id = ?",
-                (payment_id,)
-            )
-            conn.commit()
-
-        conn.close()
+            try:
+                conn = sqlite3.connect(DB_NAME)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE pending_payments SET status = 'paid' WHERE payment_id = ?", (payment_id,)
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
 
         vless_link = generate_vless_link(xray_uuid, tag="VPN1Month")
         qr_image = generate_qr_code(vless_link)
@@ -576,26 +599,28 @@ def _process_successful_payment_for_user(telegram_id, payment_id=None):
         bot.send_photo(telegram_id, qr_image, caption="QR-код для подключения")
 
     else:
-        # Создаём нового пользователя
-        conn.close()
         new_uuid, new_email = create_xray_user(email_prefix="paid_user")
         if not new_uuid:
             bot.send_message(telegram_id, "❌ Ошибка сервера при создании ключа. Обратитесь в поддержку.")
             return
 
-        add_user_to_db(telegram_id, new_uuid, new_email, payment_type='paid')
+        trial_end_str = add_user_to_db(telegram_id, new_uuid, new_email, payment_type='paid', hours=hours)
+        if not trial_end_str:
+            bot.send_message(telegram_id, "❌ Ошибка сохранения данных. Обратитесь в поддержку.")
+            return
 
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
         if payment_id:
-            cursor.execute(
-                "UPDATE pending_payments SET status = 'paid' WHERE payment_id = ?",
-                (payment_id,)
-            )
-            conn.commit()
-        conn.close()
+            try:
+                conn = sqlite3.connect(DB_NAME)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE pending_payments SET status = 'paid' WHERE payment_id = ?", (payment_id,)
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
 
-        trial_end_str = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
         vless_link = generate_vless_link(new_uuid, tag="VPN1Month")
         qr_image = generate_qr_code(vless_link)
 
@@ -613,6 +638,40 @@ def _process_successful_payment_for_user(telegram_id, payment_id=None):
                 bot.send_document(telegram_id, pdf_file, caption="Инструкция по настройке 🤓")
         except Exception as e:
             print(f"Ошибка отправки инструкции: {e}")
+
+
+def _show_agreement_screen(call, user_id):
+    """Показывает экран согласия с договором перед оплатой."""
+    kb = types.InlineKeyboardMarkup()
+    agreement_file_id = os.getenv("PDF_AGREEMENT_FILE_ID", PDF_AGREEMENT_FILE_ID)
+    privacy_file_id = os.getenv("PDF_PRIVACY_FILE_ID", PDF_PRIVACY_FILE_ID)
+    if agreement_file_id:
+        kb.add(types.InlineKeyboardButton("📄 Договор об оказании услуг", callback_data="pdf_agreement"))
+    if privacy_file_id:
+        kb.add(types.InlineKeyboardButton("📄 Политика конфиденциальности", callback_data="pdf_privacy"))
+    kb.add(types.InlineKeyboardButton("✅ Согласен — перейти к оплате", callback_data="agree_and_pay"))
+    kb.add(types.InlineKeyboardButton("🔙 Назад", callback_data="vpn_service"))
+
+    plan = user_states.get(user_id, {})
+    plan_line = ""
+    if isinstance(plan, dict) and "label" in plan:
+        plan_line = f"Тариф: *{plan['label']} — {plan['price']} руб*\n\n"
+
+    text = (
+        "📋 *Перед оплатой*\n\n"
+        f"{plan_line}"
+        "Продолжая, я соглашаюсь с:\n"
+        "• Договором об оказании услуг\n"
+        "• Политикой конфиденциальности\n\n"
+        "_Нажмите на документ выше, чтобы ознакомиться_"
+    )
+    try:
+        bot.edit_message_text(
+            chat_id=user_id, message_id=call.message.message_id,
+            text=text, reply_markup=kb, parse_mode="Markdown"
+        )
+    except:
+        bot.send_message(user_id, text, reply_markup=kb, parse_mode="Markdown")
 
 
 # --- НАЖАТИЕ КНОПОК ---
@@ -637,16 +696,18 @@ def _handle_callback_inner(call, user_id):
         send_matrix_status(call.message)
         return
 
-    # 1. УСЛУГА "VPN НА МЕСЯЦ"
+    # 1. ТАРИФЫ VPN — экран выбора
     if call.data == "vpn_service":
         bot.answer_callback_query(call.id)
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("💳 Оформить заказ", callback_data="place_order"))
+        kb.add(types.InlineKeyboardButton("⏱ 1 час — 15 руб",   callback_data="select_plan_1h"))
+        kb.add(types.InlineKeyboardButton("🌅 1 день — 49 руб",  callback_data="select_plan_1d"))
+        kb.add(types.InlineKeyboardButton("📅 3 дня — 99 руб",   callback_data="select_plan_3d"))
+        kb.add(types.InlineKeyboardButton("📆 7 дней — 199 руб", callback_data="select_plan_7d"))
         kb.add(types.InlineKeyboardButton("🔙 Назад", callback_data="back_menu"))
 
         text = (
-            "🛡 *VPN на месяц*\n\n"
-            "💰 Цена услуги: *99 рублей в месяц*\n\n"
+            "🛡 *Выберите тариф VPN*\n\n"
             "• Безлимитный трафик\n"
             "• Протокол VLESS/Reality\n"
             "• Высокая скорость\n"
@@ -660,36 +721,21 @@ def _handle_callback_inner(call, user_id):
         except:
             bot.send_message(user_id, text, reply_markup=kb, parse_mode="Markdown")
 
-    # 3. ОФОРМЛЕНИЕ ЗАКАЗА (экран согласия)
+    # 2. ВЫБОР ТАРИФА
+    elif call.data.startswith("select_plan_"):
+        plan_id = call.data.replace("select_plan_", "")
+        plan = PLANS.get(plan_id)
+        if not plan:
+            bot.answer_callback_query(call.id, "Неизвестный тариф", show_alert=True)
+            return
+        bot.answer_callback_query(call.id)
+        user_states[user_id] = dict(plan)
+        _show_agreement_screen(call, user_id)
+
+    # 3. ОФОРМЛЕНИЕ ЗАКАЗА (экран согласия — fallback для старых сообщений)
     elif call.data == "place_order":
         bot.answer_callback_query(call.id)
-        kb = types.InlineKeyboardMarkup()
-
-        agreement_file_id = os.getenv("PDF_AGREEMENT_FILE_ID", PDF_AGREEMENT_FILE_ID)
-        privacy_file_id = os.getenv("PDF_PRIVACY_FILE_ID", PDF_PRIVACY_FILE_ID)
-
-        if agreement_file_id:
-            kb.add(types.InlineKeyboardButton("📄 Договор об оказании услуг", callback_data="pdf_agreement"))
-        if privacy_file_id:
-            kb.add(types.InlineKeyboardButton("📄 Политика конфиденциальности", callback_data="pdf_privacy"))
-
-        kb.add(types.InlineKeyboardButton("✅ Согласен — перейти к оплате", callback_data="agree_and_pay"))
-        kb.add(types.InlineKeyboardButton("🔙 Назад", callback_data="vpn_service"))
-
-        text = (
-            "📋 *Перед оплатой*\n\n"
-            "Продолжая, я соглашаюсь с:\n"
-            "• Договором об оказании услуг\n"
-            "• Политикой конфиденциальности\n\n"
-            "_Нажмите на документ выше, чтобы ознакомиться_"
-        )
-        try:
-            bot.edit_message_text(
-                chat_id=user_id, message_id=call.message.message_id,
-                text=text, reply_markup=kb, parse_mode="Markdown"
-            )
-        except:
-            bot.send_message(user_id, text, reply_markup=kb, parse_mode="Markdown")
+        _show_agreement_screen(call, user_id)
 
     # 4. ОТПРАВКА PDF ДОГОВОРА
     elif call.data == "pdf_agreement":
@@ -727,6 +773,11 @@ def _handle_callback_inner(call, user_id):
 
     # 6. СОГЛАСИЕ И ПЕРЕХОД К ОПЛАТЕ
     elif call.data == "agree_and_pay":
+        plan_data = user_states.get(user_id)
+        if not isinstance(plan_data, dict) or "price" not in plan_data:
+            bot.answer_callback_query(call.id, "Сначала выберите тариф", show_alert=True)
+            return
+
         if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
             bot.answer_callback_query(
                 call.id,
@@ -737,17 +788,22 @@ def _handle_callback_inner(call, user_id):
 
         bot.answer_callback_query(call.id, "Создаю платёж...")
 
-        payment_id, payment_url = create_yookassa_payment(user_id)
+        price = plan_data["price"]
+        hours = plan_data["hours"]
+        label = plan_data["label"]
+        description = f"VPN на {label}"
+
+        payment_id, payment_url = create_yookassa_payment(user_id, price=price, hours=hours, description=description)
 
         if payment_url:
             kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton(f"💳 Оплатить {SERVICE_PRICE} руб", url=payment_url))
+            kb.add(types.InlineKeyboardButton(f"💳 Оплатить {price} руб", url=payment_url))
             kb.add(types.InlineKeyboardButton("🔙 Отмена", callback_data="vpn_service"))
 
             bot.send_message(
                 user_id,
-                f"💳 *Оплата VPN на 1 месяц*\n\n"
-                f"Сумма: *{SERVICE_PRICE} рублей*\n\n"
+                f"💳 *Оплата VPN — {label}*\n\n"
+                f"Сумма: *{price} рублей*\n\n"
                 "После оплаты ключ будет выдан автоматически.\n"
                 "Ссылка действует 1 час.",
                 reply_markup=kb,
@@ -784,7 +840,7 @@ def _handle_callback_inner(call, user_id):
         )
 
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service"))
+        kb.add(types.InlineKeyboardButton("🛡 Тарифы VPN", callback_data="vpn_service"))
         kb.add(types.InlineKeyboardButton("🔑 Мой ключ VPN", callback_data="get_my_key"))
         kb.add(types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu"))
 
@@ -814,13 +870,13 @@ def _handle_callback_inner(call, user_id):
         user_exists = check_user_exists(user_id)
         if user_exists:
             kb.add(types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile"))
-            kb.add(types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service"))
+            kb.add(types.InlineKeyboardButton("🛡 Тарифы VPN", callback_data="vpn_service"))
             kb.add(
                 types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction"),
                 types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
             )
         else:
-            kb.add(types.InlineKeyboardButton("🛡 VPN на месяц — 99 руб", callback_data="vpn_service"))
+            kb.add(types.InlineKeyboardButton("🛡 Тарифы VPN", callback_data="vpn_service"))
 
         try:
             bot.edit_message_text(

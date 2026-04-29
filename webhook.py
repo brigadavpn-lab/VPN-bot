@@ -136,10 +136,10 @@ def create_xray_user():
         return None, None
 
 
-def add_user_to_db(telegram_id, xray_uuid, email):
+def add_user_to_db(telegram_id, xray_uuid, email, hours=24):
     try:
-        trial_end = datetime.now() + timedelta(days=30)
-        trial_end_str = trial_end.strftime('%Y-%m-%d')
+        trial_end = datetime.now() + timedelta(hours=hours)
+        trial_end_str = trial_end.strftime('%Y-%m-%d %H:%M')
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute(
@@ -155,7 +155,7 @@ def add_user_to_db(telegram_id, xray_uuid, email):
         return None
 
 
-def extend_user_subscription(telegram_id, days=30):
+def extend_user_subscription(telegram_id, hours=24):
     """Продление подписки существующего пользователя. Возвращает (xray_uuid, new_end_str)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -166,14 +166,19 @@ def extend_user_subscription(telegram_id, days=30):
         return None, None
 
     xray_uuid = row[0]
-    try:
-        current_end = datetime.strptime(row[1], '%Y-%m-%d')
-    except:
+    current_end = None
+    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            current_end = datetime.strptime(row[1], fmt)
+            break
+        except ValueError:
+            pass
+    if current_end is None:
         current_end = datetime.now()
 
     now = datetime.now()
-    new_end = (current_end if current_end > now else now) + timedelta(days=days)
-    new_end_str = new_end.strftime('%Y-%m-%d')
+    new_end = (current_end if current_end > now else now) + timedelta(hours=hours)
+    new_end_str = new_end.strftime('%Y-%m-%d %H:%M')
 
     cursor.execute(
         "UPDATE users SET trial_end_date = ?, status = 'active', payment_type = 'paid' WHERE telegram_id = ?",
@@ -198,9 +203,24 @@ def mark_payment_paid(payment_id):
         print(f"Ошибка обновления статуса платежа: {e}")
 
 
+def get_payment_hours(payment_id):
+    """Читает duration_hours из pending_payments. Возвращает 24 если не найдено."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT duration_hours FROM pending_payments WHERE payment_id = ?", (payment_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else 24
+    except Exception:
+        return 24
+
+
 def handle_successful_payment(payment_id, telegram_id):
     """Основная функция обработки успешного платежа."""
     print(f"[webhook] Обработка платежа {payment_id} для пользователя {telegram_id}")
+
+    hours = get_payment_hours(payment_id)
 
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -210,7 +230,7 @@ def handle_successful_payment(payment_id, telegram_id):
 
     if existing:
         # Пользователь уже есть — продлеваем
-        xray_uuid, new_end_str = extend_user_subscription(telegram_id)
+        xray_uuid, new_end_str = extend_user_subscription(telegram_id, hours=hours)
         if not xray_uuid:
             tg_send_message(telegram_id, "❌ Ошибка продления подписки. Напишите в поддержку.")
             return
@@ -236,7 +256,7 @@ def handle_successful_payment(payment_id, telegram_id):
             tg_send_message(ADMIN_ID, f"⚠️ Ошибка создания Xray-пользователя после оплаты! telegram_id={telegram_id}")
             return
 
-        trial_end_str = add_user_to_db(telegram_id, new_uuid, new_email)
+        trial_end_str = add_user_to_db(telegram_id, new_uuid, new_email, hours=hours)
         if not trial_end_str:
             tg_send_message(telegram_id, "❌ Ошибка сохранения данных. Обратитесь в поддержку.")
             return
