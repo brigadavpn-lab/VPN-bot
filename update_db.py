@@ -49,8 +49,22 @@ def create_pending_payments_table():
         print(f"⚠️ Ошибка создания таблицы pending_payments: {e}")
 
 
+def add_duration_hours_column():
+    """Добавляет колонку duration_hours в pending_payments для хранения длительности тарифа"""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("ALTER TABLE pending_payments ADD COLUMN duration_hours INTEGER DEFAULT 24")
+        conn.commit()
+        conn.close()
+        print("✅ Колонка 'duration_hours' добавлена в pending_payments.")
+    except Exception as e:
+        print(f"⚠️ Колонка 'duration_hours' уже есть или ошибка: {e}")
+
+
 if __name__ == "__main__":
     add_status_column()
     add_payment_type_column()
     create_pending_payments_table()
+    add_duration_hours_column()
     print("✅ Миграция базы данных завершена.")
