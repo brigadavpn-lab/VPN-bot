@@ -62,9 +62,23 @@ def add_duration_hours_column():
         print(f"⚠️ Колонка 'duration_hours' уже есть или ошибка: {e}")
 
 
+def add_renewal_notified_column():
+    """Флаг отправки уведомления об истечении подписки. Сбрасывается при оплате."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("ALTER TABLE users ADD COLUMN renewal_notified INTEGER DEFAULT 0")
+        conn.commit()
+        conn.close()
+        print("✅ Колонка 'renewal_notified' добавлена в users.")
+    except Exception as e:
+        print(f"⚠️ Колонка 'renewal_notified' уже есть или ошибка: {e}")
+
+
 if __name__ == "__main__":
     add_status_column()
     add_payment_type_column()
     create_pending_payments_table()
     add_duration_hours_column()
+    add_renewal_notified_column()
     print("✅ Миграция базы данных завершена.")

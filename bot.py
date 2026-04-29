@@ -12,6 +12,7 @@ import os
 from dotenv import load_dotenv
 import random
 import time
+import threading
 
 # Загружаем секреты из файла .env
 load_dotenv()
@@ -198,7 +199,7 @@ def extend_user_trial(target_user_id, hours=None, days=None):
         new_end_str = new_end_date.strftime('%Y-%m-%d %H:%M')
 
         cursor.execute(
-            "UPDATE users SET trial_end_date = ?, status = 'active' WHERE telegram_id = ?",
+            "UPDATE users SET trial_end_date = ?, status = 'active', renewal_notified = 0 WHERE telegram_id = ?",
             (new_end_str, target_user_id,)
         )
         conn.commit()
@@ -674,6 +675,30 @@ def _show_agreement_screen(call, user_id):
         bot.send_message(user_id, text, reply_markup=kb, parse_mode="Markdown")
 
 
+def _show_plan_selection(call, user_id):
+    """Показывает экран выбора тарифа (редактирует или отправляет новое сообщение)."""
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("⏱ 1 час — 15 руб",   callback_data="select_plan_1h"))
+    kb.add(types.InlineKeyboardButton("🌅 1 день — 49 руб",  callback_data="select_plan_1d"))
+    kb.add(types.InlineKeyboardButton("📅 3 дня — 99 руб",   callback_data="select_plan_3d"))
+    kb.add(types.InlineKeyboardButton("📆 7 дней — 199 руб", callback_data="select_plan_7d"))
+    kb.add(types.InlineKeyboardButton("🔙 Назад", callback_data="back_menu"))
+    text = (
+        "🛡 *Выберите тариф VPN*\n\n"
+        "• Безлимитный трафик\n"
+        "• Протокол VLESS/Reality\n"
+        "• Высокая скорость\n"
+        "• Поддержка 24/7"
+    )
+    try:
+        bot.edit_message_text(
+            chat_id=user_id, message_id=call.message.message_id,
+            text=text, reply_markup=kb, parse_mode="Markdown"
+        )
+    except:
+        bot.send_message(user_id, text, reply_markup=kb, parse_mode="Markdown")
+
+
 # --- НАЖАТИЕ КНОПОК ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -699,27 +724,7 @@ def _handle_callback_inner(call, user_id):
     # 1. ТАРИФЫ VPN — экран выбора
     if call.data == "vpn_service":
         bot.answer_callback_query(call.id)
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⏱ 1 час — 15 руб",   callback_data="select_plan_1h"))
-        kb.add(types.InlineKeyboardButton("🌅 1 день — 49 руб",  callback_data="select_plan_1d"))
-        kb.add(types.InlineKeyboardButton("📅 3 дня — 99 руб",   callback_data="select_plan_3d"))
-        kb.add(types.InlineKeyboardButton("📆 7 дней — 199 руб", callback_data="select_plan_7d"))
-        kb.add(types.InlineKeyboardButton("🔙 Назад", callback_data="back_menu"))
-
-        text = (
-            "🛡 *Выберите тариф VPN*\n\n"
-            "• Безлимитный трафик\n"
-            "• Протокол VLESS/Reality\n"
-            "• Высокая скорость\n"
-            "• Поддержка 24/7"
-        )
-        try:
-            bot.edit_message_text(
-                chat_id=user_id, message_id=call.message.message_id,
-                text=text, reply_markup=kb, parse_mode="Markdown"
-            )
-        except:
-            bot.send_message(user_id, text, reply_markup=kb, parse_mode="Markdown")
+        _show_plan_selection(call, user_id)
 
     # 2. ВЫБОР ТАРИФА
     elif call.data.startswith("select_plan_"):
@@ -901,7 +906,61 @@ def _handle_callback_inner(call, user_id):
         bot.send_message(user_id, "✍️ Напишите свой вопрос следующим сообщением, я передам его Админу.")
         user_states[user_id] = "waiting_feedback"
 
+    # 12. УВЕДОМЛЕНИЕ ОБ ИСТЕЧЕНИИ — ПРОДЛИТЬ?
+    elif call.data == "renewal_yes":
+        bot.answer_callback_query(call.id)
+        _show_plan_selection(call, user_id)
+
+    elif call.data == "renewal_no":
+        bot.answer_callback_query(call.id)
+        try:
+            bot.edit_message_text(
+                chat_id=user_id, message_id=call.message.message_id,
+                text="Хорошо! Если передумаете — нажмите /start 👋"
+            )
+        except:
+            bot.send_message(user_id, "Хорошо! Если передумаете — нажмите /start 👋")
+
+
+def _notify_expiring_users():
+    """Фоновый поток: каждые 10 минут ищет пользователей с истёкшей подпиской и отправляет уведомление."""
+    while True:
+        try:
+            now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+            conn = sqlite3.connect(DB_NAME)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT telegram_id FROM users "
+                "WHERE trial_end_date <= ? AND status = 'active' AND renewal_notified = 0",
+                (now_str,)
+            )
+            expired = cursor.fetchall()
+            for (tid,) in expired:
+                try:
+                    kb = types.InlineKeyboardMarkup()
+                    kb.row(
+                        types.InlineKeyboardButton("✅ Да", callback_data="renewal_yes"),
+                        types.InlineKeyboardButton("❌ Нет", callback_data="renewal_no")
+                    )
+                    bot.send_message(
+                        tid,
+                        "⏰ *Срок подписки истёк.*\n\nХотите продлить?",
+                        reply_markup=kb,
+                        parse_mode="Markdown"
+                    )
+                    cursor.execute(
+                        "UPDATE users SET renewal_notified = 1 WHERE telegram_id = ?", (tid,)
+                    )
+                    conn.commit()
+                except Exception as e:
+                    print(f"[notify] Ошибка для {tid}: {e}")
+            conn.close()
+        except Exception as e:
+            print(f"[notify] Ошибка потока: {e}")
+        time.sleep(600)  # каждые 10 минут
+
 
 # --- ЗАПУСК ---
+threading.Thread(target=_notify_expiring_users, daemon=True).start()
 print("Бот запущен...")
 bot.infinity_polling(timeout=10, long_polling_timeout=5)
