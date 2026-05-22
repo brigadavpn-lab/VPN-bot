@@ -1,3 +1,5 @@
 .vscode-server/
 .vscode-server/
 .vscode-server/
+__pycache__/
+*.pyc
