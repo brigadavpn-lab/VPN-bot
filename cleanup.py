@@ -3,6 +3,8 @@ import json
 import subprocess
 from datetime import datetime
 
+from proxy_routing import update_xray_proxy_routing
+
 # --- НАСТРОЙКИ ---
 DB_NAME = "/root/vpn-bot/vpn_users.db"
 CONFIG_FILE = "/usr/local/etc/xray/config.json"
@@ -78,6 +80,15 @@ def remove_expired_users():
 
     conn.commit()
     conn.close()
+
+    # Перестраиваем routing rule, чтобы email удалённых юзеров не остались
+    # в bot_managed_proxy. Дёргаем только если фактически что-то удалили.
+    if expired_users:
+        if update_xray_proxy_routing():
+            log("Routing rule bot_managed_proxy пересобран.")
+        else:
+            log("ВНИМАНИЕ: не удалось пересобрать routing rule bot_managed_proxy.")
+
     log("Чистка завершена.")
 
 if __name__ == "__main__":

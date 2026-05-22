@@ -13,6 +13,8 @@ from dotenv import load_dotenv # <-- НОВЫЙ ИМПОРТ
 import random
 import time
 
+from proxy_routing import update_xray_proxy_routing
+
 # Загружаем секреты из файла .env
 load_dotenv()
 
@@ -163,6 +165,72 @@ def extend_user_trial(target_user_id, days):
         return True, new_end_str
     except Exception as e:
         return False, f"Ошибка: {e}"
+
+def get_user_proxy_status(user_id):
+    """Возвращает текущий статус прокси для пользователя: 0 или 1"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT proxy_enabled FROM users WHERE telegram_id=?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else 0
+
+def toggle_user_proxy(user_id):
+    """Переключает proxy_enabled для юзера. Возвращает новый статус (0 или 1)."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT proxy_enabled FROM users WHERE telegram_id=?", (user_id,))
+    row = cursor.fetchone()
+    current = row[0] if row and row[0] is not None else 0
+    new_status = 0 if current else 1
+    cursor.execute(
+        "UPDATE users SET proxy_enabled=? WHERE telegram_id=?",
+        (new_status, user_id),
+    )
+    conn.commit()
+    conn.close()
+    return new_status
+
+def build_profile_view(user_id):
+    """
+    Собирает текст и клавиатуру карточки «Личный кабинет».
+    Возвращает (profile_text, kb) или None если юзер не найден в БД.
+    Единая точка сборки — используется и в my_profile, и в proxy_toggle.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT trial_end_date, status FROM users WHERE telegram_id=?", (user_id,))
+    data = cur.fetchone()
+    conn.close()
+    if not data:
+        return None
+
+    end_date_str, status = data[0], data[1]
+    status_emoji = "✅ Активен" if status == "active" else "🔴 Отключен"
+    if status == "banned":
+        status_emoji = "🚫 Заблокирован"
+
+    proxy_status = get_user_proxy_status(user_id)
+    proxy_emoji = "🟢" if proxy_status else "🔴"
+    proxy_label = "ВКЛ" if proxy_status else "ВЫКЛ"
+    proxy_note = "IP меняется при каждом соединении" if proxy_status else "Прямое соединение"
+
+    profile_text = (
+        f"👤 **Личный кабинет**\n\n"
+        f"🔑 Текущий статус: {status_emoji}\n"
+        f"📅 Подписка истекает: **{end_date_str}**\n"
+        f"{proxy_emoji} Прокси: **{proxy_label}** — {proxy_note}\n\n"
+        f"🆔 Ваш ID: `{user_id}`"
+    )
+
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("💳 Продлить подписку", callback_data="pay_extend"))
+    kb.add(types.InlineKeyboardButton(
+        f"{proxy_emoji} Прокси (смена IP): {proxy_label}",
+        callback_data="proxy_toggle",
+    ))
+    kb.add(types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu"))
+    return profile_text, kb
 
 # --- ОБРАБОТЧИКИ БОТА ---
 
@@ -329,9 +397,9 @@ def handle_text(message):
 # --- НАЖАТИЕ КНОПОК ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    if call.data == "get_vpn":
+    user_id = call.message.chat.id
 
-        user_id = call.message.chat.id
+    if call.data == "get_vpn":
         bot.answer_callback_query(call.id, text="Проверяю базу...")
 
         if check_user_exists(user_id):
@@ -373,41 +441,49 @@ def handle_callback(call):
 
     # 2. КНОПКА "МОЙ ПРОФИЛЬ"
     elif call.data == "my_profile":
-        # Делаем запрос в базу за конкретными полями
-        conn = sqlite3.connect(DB_NAME)
-        cur = conn.cursor()
-        cur.execute("SELECT trial_end_date, status FROM users WHERE telegram_id=?", (user_id,))
-        data = cur.fetchone()
-        conn.close()
-
-        if not data:
+        view = build_profile_view(user_id)
+        if view is None:
             bot.send_message(user_id, "Ошибка: профиль не найден.")
             return
-
-        # Распаковываем данные
-        end_date_str = data[0]
-        status = data[1]
-
-        # Выбираем красивый значок
-        status_emoji = "✅ Активен" if status == 'active' else "🔴 Отключен"
-        if status == 'banned': status_emoji = "🚫 Заблокирован"
-
-        profile_text = (
-            f"👤 **Личный кабинет**\n\n"
-            f"🔑 Текущий статус: {status_emoji}\n"
-            f"📅 Подписка истекает: **{end_date_str}**\n\n"
-            f"🆔 Ваш ID: `{user_id}`"
+        profile_text, kb = view
+        bot.edit_message_text(
+            chat_id=user_id,
+            message_id=call.message.message_id,
+            text=profile_text,
+            reply_markup=kb,
+            parse_mode="Markdown",
         )
 
-        # Кнопки внутри профиля
-        kb = types.InlineKeyboardMarkup()
-        btn_pay = types.InlineKeyboardButton("💳 Продлить подписку", callback_data="pay_extend")
-        btn_back = types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu")
-        kb.add(btn_pay)
-        kb.add(btn_back)
+    # 2b. КНОПКА "ПРОКСИ"
+    elif call.data == "proxy_toggle":
+        if not check_user_exists(user_id):
+            bot.answer_callback_query(call.id, "Сначала получите доступ к VPN")
+            return
 
-        # edit_message_text меняет старое сообщение на новое (чтобы не спамить)
-        bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text=profile_text, reply_markup=kb, parse_mode="Markdown")
+        bot.answer_callback_query(call.id, "⏳ Переключаю прокси...")
+        toggle_user_proxy(user_id)
+
+        ok = update_xray_proxy_routing()
+        if not ok:
+            # Откатываем флаг строго через toggle_user_proxy — единая точка входа.
+            toggle_user_proxy(user_id)
+            bot.send_message(
+                user_id,
+                "❌ Ошибка при переключении прокси. Напишите в поддержку.",
+            )
+            return
+
+        view = build_profile_view(user_id)
+        if view is None:
+            return
+        profile_text, kb = view
+        bot.edit_message_text(
+            chat_id=user_id,
+            message_id=call.message.message_id,
+            text=profile_text,
+            reply_markup=kb,
+            parse_mode="Markdown",
+        )
 
     # 3. КНОПКА "ПРОДЛИТЬ" (Показываем реквизиты)
     elif call.data == "pay_extend":
