@@ -49,9 +49,14 @@ user_states = {}
 
 bot = telebot.TeleBot(TOKEN)
 
+# ── Mini App ──────────────────────────────────────────────────
+# Заглушка для PAYMENT_INFO (используется в callback pay_extend)
+PAYMENT_INFO = "Для продления подписки откройте приложение или напишите @admin"
+MINI_APP_URL = "https://olegych.org/app/index.html"
+
 # --- ФУНКЦИИ ---
 
-def generate_vless_link(user_uuid):
+def generate_vless_link(user_uuid, tag="olegych"):
     """Генерация ссылки VLESS Reality"""
     params = {
         "security": "reality",
@@ -62,7 +67,7 @@ def generate_vless_link(user_uuid):
         "type": "tcp"
     }
     query_string = urllib.parse.urlencode(params)
-    link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#BetaTest"
+    link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#{tag}"
     return link
 
 def generate_qr_code(link):
@@ -247,12 +252,17 @@ def send_welcome(message):
         # ВАРИАНТ А: СТАРЫЙ ДРУГ
         # Создаем кнопки
             btn_profile = types.InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")
+            btn_webapp = types.InlineKeyboardButton(
+                "🌐 Открыть приложение",
+                web_app=types.WebAppInfo(url=MINI_APP_URL),
+            )
             btn_instruction = types.InlineKeyboardButton("📖 Инструкция", callback_data="get_instruction")
             btn_support = types.InlineKeyboardButton("🆘 Поддержка", callback_data="ask_support")
             btn_matrix = types.InlineKeyboardButton("🕶 Матрица", callback_data="show_matrix")
 
             # Добавляем их на клавиатуру (СТРОГО ПО ОДНОМУ РАЗУ)
             keyboard.add(btn_profile)
+            keyboard.add(btn_webapp)
             keyboard.add(btn_instruction, btn_support)
             keyboard.add(btn_matrix)
 
