@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0D0F14">
+<title>BrigadaVPN</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg:          #0D0F14;
+    --card:        #161B24;
+    --card-border: #1E2D40;
+    --accent:      #00FF88;
+    --accent-dim:  rgba(0, 255, 136, 0.12);
+    --text:        #E5E7EB;
+    --text-2:      #9CA3AF;
+    --text-3:      #6B7280;
+    --danger:      #FF4757;
+    --warn:        #FFB830;
+    --tab-h:       64px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    overflow-x: hidden;
+}
+
+#content {
+    min-height: 100vh;
+    padding: 16px 16px calc(var(--tab-h) + var(--safe-bottom) + 16px);
+    max-width: 720px;
+    margin: 0 auto;
+}
+
+.screen { display: none; animation: fade 0.2s ease; }
+.screen.active { display: block; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.greeting {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 12px 0 18px;
+}
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 14px;
+}
+
+.card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.badge.ok    { background: var(--accent-dim); color: var(--accent); }
+.badge.err   { background: rgba(255,71,87,0.12); color: var(--danger); }
+.badge.warn  { background: rgba(255,184,48,0.15); color: var(--warn); }
+
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row + .row { margin-top: 10px; }
+
+.label-2 { color: var(--text-2); font-size: 13px; }
+.value   { font-weight: 600; }
+
+.progress {
+    margin-top: 14px;
+    height: 8px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.progress > i {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #00CC6A);
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+.progress-meta {
+    display: flex; justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-3);
+}
+
+/* Toggle switch */
+.switch { position: relative; width: 48px; height: 28px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider {
+    position: absolute; inset: 0;
+    background: #2A2F3A;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.switch .slider::before {
+    content: "";
+    position: absolute;
+    left: 3px; top: 3px;
+    width: 22px; height: 22px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(20px); }
+.switch input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
+
+/* Buttons */
+.btn {
+    display: block;
+    width: 100%;
+    background: var(--accent);
+    color: #002914;
+    border: none;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font: inherit;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    transition: transform 0.1s ease, opacity 0.2s ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn.ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--card-border);
+}
+
+/* Plans */
+.plan {
+    border: 1.5px solid var(--card-border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 10px;
+    background: var(--card);
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+    position: relative;
+}
+.plan:active { transform: scale(0.98); }
+.plan.selected { border-color: var(--accent); background: var(--accent-dim); }
+.plan-name  { font-weight: 600; }
+.plan-price { font-size: 18px; font-weight: 700; margin-top: 4px; }
+.plan-meta  { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.plan-badge {
+    position: absolute; top: -8px; right: 12px;
+    padding: 3px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+}
+
+/* Currency selector */
+.asset-row { display: flex; gap: 8px; margin: 6px 0 14px; }
+.asset-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    color: var(--text-2);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.asset-btn:active { transform: scale(0.97); }
+.asset-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+/* QR + key */
+#qr-container {
+    width: 200px; height: 200px;
+    margin: 6px auto 16px;
+    background: #fff;
+    padding: 10px;
+    border-radius: 12px;
+}
+#qr-container > * { display: block !important; margin: 0 auto; }
+.key-text {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    word-break: break-all;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 12px;
+    color: var(--text-2);
+    margin-bottom: 14px;
+}
+.compat {
+    text-align: center;
+    color: var(--text-3);
+    font-size: 12px;
+    margin-top: 10px;
+}
+
+/* Instruction tabs */
+.tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 14px;
+}
+.tabs button {
+    padding: 9px 4px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    color: var(--text-2);
+    border-radius: 10px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.tabs button:active { transform: scale(0.97); }
+.tabs button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+.instr-panel { display: none; }
+.instr-panel.active { display: block; }
+
+.step {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--card-border);
+}
+.step:last-child { border-bottom: none; }
+.step-num {
+    flex: 0 0 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+}
+.step-title { font-weight: 600; margin-bottom: 2px; }
+.step-desc  { font-size: 13px; color: var(--text-2); }
+
+/* Settings */
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--card-border);
+}
+.info-row:last-child { border-bottom: none; }
+.info-row .info-key { color: var(--text-2); font-size: 14px; }
+.info-row .info-val { font-weight: 500; }
+.info-row a { color: var(--accent); text-decoration: none; }
+
+/* Loader / error */
+.state {
+    text-align: center;
+    padding: 40px 16px;
+    color: var(--text-2);
+    font-size: 14px;
+}
+.spinner {
+    width: 28px; height: 28px;
+    border: 3px solid rgba(255,255,255,0.08);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    margin: 0 auto 10px;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Tab bar */
+#tabbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: calc(var(--tab-h) + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    background: rgba(13, 15, 20, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--card-border);
+    z-index: 100;
+}
+.tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: var(--text-3);
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 500;
+    transition: color 0.15s;
+}
+.tab:active { transform: scale(0.95); }
+.tab .ic { font-size: 18px; }
+.tab.active { color: var(--accent); }
+
+/* Toast */
+#toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--tab-h) + var(--safe-bottom) + 12px);
+    transform: translateX(-50%) translateY(120%);
+    background: #202733;
+    color: var(--text);
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    opacity: 0;
+    transition: all 0.25s ease;
+    z-index: 200;
+    max-width: 92vw;
+    text-align: center;
+}
+#toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+/* Misc */
+.hint {
+    background: rgba(0, 255, 136, 0.05);
+    border: 1px solid rgba(0, 255, 136, 0.15);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--text-2);
+}
+.hint b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="content">
+
+    <!-- ─── Screen 1: Profile ─────────────────────────────────── -->
+    <section id="screen-profile" class="screen active">
+        <div id="profile-loader" class="state">
+            <div class="spinner"></div>
+            Загружаю профиль…
+        </div>
+
+        <div id="profile-error" class="state" style="display:none">
+            <p>Профиль не найден.</p>
+            <p style="margin-top:8px;color:var(--text-3)">Запустите бота: <b>/start</b></p>
+        </div>
+
+        <div id="profile-content" style="display:none">
+            <p class="greeting">Привет, <span id="user-name">друг</span> 👋</p>
+
+            <div class="card">
+                <div class="card-title">Подписка</div>
+                <div class="row">
+                    <span class="label-2">Статус</span>
+                    <span id="sub-status" class="badge ok">Активна</span>
+                </div>
+                <div class="row">
+                    <span class="label-2">Действует до</span>
+                    <span id="sub-end" class="value">—</span>
+                </div>
+                <div class="progress"><i id="sub-progress" style="width:0%"></i></div>
+                <div class="progress-meta">
+                    <span id="sub-remain">—</span>
+                    <span id="sub-percent">—</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Прокси (смена IP)</div>
+                <div class="row">
+                    <span class="label-2">Ротационный IP через DataImpulse</span>
+                    <label class="switch">
+                        <input id="proxy-toggle" type="checkbox">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <button class="btn" onclick="showScreen('plans')">💳 Продлить подписку</button>
+        </div>
+    </section>
+
+    <!-- ─── Screen 2: Key ────────────────────────────────────── -->
+    <section id="screen-key" class="screen">
+        <p class="greeting">Ваш ключ 🔑</p>
+
+        <div id="key-loader" class="state" style="display:none">
+            <div class="spinner"></div>
+            Получаю ключ…
+        </div>
+
+        <div id="key-error" class="state" style="display:none">
+            <p id="key-error-msg">Подписка неактивна.</p>
+            <button class="btn" style="margin-top:14px" onclick="showScreen('plans')">К тарифам</button>
+        </div>
+
+        <div id="key-content" style="display:none">
+            <div class="card" style="text-align:center">
+                <div id="qr-container"></div>
+                <div class="key-text" id="vless-text"></div>
+                <button class="btn" onclick="copyKey()">📋 Скопировать ключ</button>
+                <div class="compat">v2rayNG · V2Box · Hiddify · Streisand</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ─── Screen 3: Plans ──────────────────────────────────── -->
+    <section id="screen-plans" class="screen">
+        <p class="greeting">Тарифы 💎</p>
+
+        <div id="plans-list">
+            <div class="plan" data-plan="1" onclick="selectPlan(1)">
+                <div class="plan-name">1 месяц</div>
+                <div class="plan-price">3.00 USDT</div>
+                <div class="plan-meta">30 дней</div>
+            </div>
+            <div class="plan selected" data-plan="2" onclick="selectPlan(2)">
+                <span class="plan-badge" style="background:var(--accent-dim);color:var(--accent)">★ Выгодно</span>
+                <div class="plan-name">3 месяца</div>
+                <div class="plan-price">8.00 USDT</div>
+                <div class="plan-meta">90 дней · ~2.67 USDT/мес</div>
+            </div>
+            <div class="plan" data-plan="3" onclick="selectPlan(3)">
+                <span class="plan-badge" style="background:rgba(255,184,48,0.15);color:var(--warn)">−22%</span>
+                <div class="plan-name">6 месяцев</div>
+                <div class="plan-price">14.00 USDT</div>
+                <div class="plan-meta">180 дней · ~2.33 USDT/мес</div>
+            </div>
+        </div>
+
+        <div class="asset-row">
+            <button class="asset-btn active" data-asset="USDT" onclick="selectAsset('USDT')">USDT</button>
+            <button class="asset-btn" data-asset="TON"  onclick="selectAsset('TON')">TON</button>
+            <button class="asset-btn" data-asset="USDC" onclick="selectAsset('USDC')">USDC</button>
+        </div>
+
+        <button id="pay-btn" class="btn" onclick="startPayment()">Оплатить 8.00 USDT</button>
+
+        <div class="hint">
+            ⚡ <b>Автоматическое зачисление.</b> Подписка продлится сразу после оплаты.<br>
+            🔒 <b>Безопасно через CryptoPay.</b>
+        </div>
+    </section>
+
+    <!-- ─── Screen 4: Instructions ──────────────────────────── -->
+    <section id="screen-instructions" class="screen">
+        <p class="greeting">Инструкции 📖</p>
+
+        <div class="tabs">
+            <button class="active" data-platform="android" onclick="showInstr('android')">Android</button>
+            <button data-platform="ios"     onclick="showInstr('ios')">iOS</button>
+            <button data-platform="windows" onclick="showInstr('windows')">Windows</button>
+            <button data-platform="macos"   onclick="showInstr('macos')">macOS</button>
+        </div>
+
+        <div class="instr-panel active" data-platform="android">
+            <div class="card">
+                <div class="step"><div class="step-num">1</div><div><div class="step-title">Установите v2rayNG</div><div class="step-desc">Скачайте из Google Play.</div></div></div>
+                <div class="step"><div class="step-num">2</div><div><div class="step-title">Откройте экран «Ключ»</div><div class="step-desc">Скопируйте VLESS-ссылку.</div></div></div>
+                <div class="step"><div class="step-num">3</div><div><div class="step-title">В v2rayNG → «+» → «Импорт из буфера»</div><div class="step-desc">Профиль добавится автоматически.</div></div></div>
+                <div class="step"><div class="step-num">4</div><div><div class="step-title">Нажмите ▶️ Подключиться</div><div class="step-desc">Готово, VPN работает.</div></div></div>
+            </div>
+            <button class="btn ghost" onclick="openLink('https://play.google.com/store/apps/details?id=com.v2ray.ang')">📥 v2rayNG в Google Play</button>
+        </div>
+
+        <div class="instr-panel" data-platform="ios">
+            <div class="card">
+                <div class="step"><div class="step-num">1</div><div><div class="step-title">Установите V2Box</div><div class="step-desc">Скачайте из App Store.</div></div></div>
+                <div class="step"><div class="step-num">2</div><div><div class="step-title">Откройте экран «Ключ»</div><div class="step-desc">Скопируйте VLESS-ссылку.</div></div></div>
+                <div class="step"><div class="step-num">3</div><div><div class="step-title">В V2Box → «+» → «Import from clipboard»</div><div class="step-desc">Профиль добавится автоматически.</div></div></div>
+                <div class="step"><div class="step-num">4</div><div><div class="step-title">Tap Connect</div><div class="step-desc">VPN активен.</div></div></div>
+            </div>
+            <button class="btn ghost" onclick="openLink('https://apps.apple.com/app/v2box-v2ray-client/id6446814690')">📥 V2Box в App Store</button>
+        </div>
+
+        <div class="instr-panel" data-platform="windows">
+            <div class="card">
+                <div class="step"><div class="step-num">1</div><div><div class="step-title">Установите Hiddify</div><div class="step-desc">Скачайте с hiddify.com.</div></div></div>
+                <div class="step"><div class="step-num">2</div><div><div class="step-title">Откройте экран «Ключ»</div><div class="step-desc">Скопируйте VLESS-ссылку.</div></div></div>
+                <div class="step"><div class="step-num">3</div><div><div class="step-title">В Hiddify → «Add Profile from Clipboard»</div><div class="step-desc">Профиль добавится.</div></div></div>
+                <div class="step"><div class="step-num">4</div><div><div class="step-title">Нажмите Connect</div><div class="step-desc">VPN запущен.</div></div></div>
+            </div>
+            <button class="btn ghost" onclick="openLink('https://hiddify.com')">📥 Hiddify для Windows</button>
+        </div>
+
+        <div class="instr-panel" data-platform="macos">
+            <div class="card">
+                <div class="step"><div class="step-num">1</div><div><div class="step-title">Установите Hiddify</div><div class="step-desc">Скачайте с hiddify.com.</div></div></div>
+                <div class="step"><div class="step-num">2</div><div><div class="step-title">Откройте экран «Ключ»</div><div class="step-desc">Скопируйте VLESS-ссылку.</div></div></div>
+                <div class="step"><div class="step-num">3</div><div><div class="step-title">В Hiddify → «Add Profile from Clipboard»</div><div class="step-desc">Профиль добавится.</div></div></div>
+                <div class="step"><div class="step-num">4</div><div><div class="step-title">Нажмите Connect</div><div class="step-desc">VPN запущен.</div></div></div>
+            </div>
+            <button class="btn ghost" onclick="openLink('https://hiddify.com')">📥 Hiddify для macOS</button>
+        </div>
+    </section>
+
+    <!-- ─── Screen 5: Settings ──────────────────────────────── -->
+    <section id="screen-settings" class="screen">
+        <p class="greeting">Настройки ⚙️</p>
+
+        <div class="card">
+            <div class="info-row">
+                <span class="info-key">Telegram ID</span>
+                <span id="set-tg-id" class="info-val">—</span>
+            </div>
+            <div class="info-row">
+                <span class="info-key">Поддержка</span>
+                <a class="info-val" href="https://t.me/admin" onclick="openLink('https://t.me/admin'); return false;">@admin</a>
+            </div>
+            <div class="info-row">
+                <span class="info-key">Версия приложения</span>
+                <span class="info-val">1.0.0</span>
+            </div>
+            <div class="info-row">
+                <span class="info-key">Статус сервиса</span>
+                <span id="set-service" class="info-val">—</span>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<!-- ─── Tab bar ─────────────────────────────────────────────── -->
+<nav id="tabbar">
+    <div class="tab active" data-screen="profile"      onclick="showScreen('profile')">
+        <div class="ic">👤</div><div>Профиль</div>
+    </div>
+    <div class="tab" data-screen="key"          onclick="showScreen('key')">
+        <div class="ic">🔑</div><div>Ключ</div>
+    </div>
+    <div class="tab" data-screen="plans"        onclick="showScreen('plans')">
+        <div class="ic">💎</div><div>Тарифы</div>
+    </div>
+    <div class="tab" data-screen="instructions" onclick="showScreen('instructions')">
+        <div class="ic">📖</div><div>Инструкция</div>
+    </div>
+    <div class="tab" data-screen="settings"     onclick="showScreen('settings')">
+        <div class="ic">⚙️</div><div>Настройки</div>
+    </div>
+</nav>
+
+<div id="toast"></div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+const BASE_URL = window.location.origin;
+
+const state = {
+    user:          null,
+    vlessLink:     null,
+    initData:      '',
+    selectedPlan:  2,
+    selectedAsset: 'USDT',
+    qrGenerated:   false,
+    paying:        false,
+};
+
+if (tg) {
+    tg.ready();
+    tg.expand();
+    state.initData = tg.initData || '';
+} else {
+    console.warn('Telegram WebApp недоступен — открыто в браузере вне Telegram');
+}
+
+// ─── API helper ───────────────────────────────────────────────
+async function api(path, opts = {}) {
+    const headers = {
+        'X-Telegram-Init-Data': state.initData,
+        ...(opts.headers || {}),
+    };
+    if (opts.body && !(opts.body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json';
+    }
+    const resp = await fetch(BASE_URL + path, { ...opts, headers });
+    if (!resp.ok) {
+        let detail = `HTTP ${resp.status}`;
+        try { const j = await resp.json(); detail = j.detail || detail; } catch (_) {}
+        const err = new Error(detail);
+        err.status = resp.status;
+        throw err;
+    }
+    return resp.json();
+}
+
+// ─── Toast ────────────────────────────────────────────────────
+function showToast(msg, duration = 2500) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+// ─── External links via Telegram ──────────────────────────────
+function openLink(url) {
+    if (tg && tg.openLink) tg.openLink(url);
+    else window.open(url, '_blank', 'noopener');
+}
+
+// ─── Date helpers ─────────────────────────────────────────────
+const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+function formatRuDate(yyyyMmDd) {
+    if (!yyyyMmDd || typeof yyyyMmDd !== 'string') return '—';
+    const [y, m, d] = yyyyMmDd.split('-').map(Number);
+    if (!y || !m || !d) return yyyyMmDd;
+    return `${d} ${MONTHS_RU[m-1]} ${y}`;
+}
+function daysBetween(a, b) {
+    return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+
+// ─── Screens ──────────────────────────────────────────────────
+function showScreen(name) {
+    document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+    document.getElementById('screen-' + name).classList.add('active');
+    document.querySelectorAll('#tabbar .tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.screen === name)
+    );
+    if (name === 'key' && !state.qrGenerated && state.user) {
+        loadKey();
+    }
+}
+
+// ─── Profile ──────────────────────────────────────────────────
+async function loadProfile() {
+    const loader  = document.getElementById('profile-loader');
+    const error   = document.getElementById('profile-error');
+    const content = document.getElementById('profile-content');
+    loader.style.display = 'block';
+    error.style.display = 'none';
+    content.style.display = 'none';
+
+    try {
+        const data = await api('/api/user/me');
+        state.user = data;
+        renderProfile(data);
+        renderSettings(data);
+        loader.style.display = 'none';
+        content.style.display = 'block';
+    } catch (exc) {
+        loader.style.display = 'none';
+        error.style.display = 'block';
+        if (exc.status !== 404) {
+            console.error('loadProfile:', exc);
+        }
+    }
+}
+
+function renderProfile(u) {
+    document.getElementById('user-name').textContent = u.first_name || u.username || 'друг';
+
+    const statusEl = document.getElementById('sub-status');
+    if (u.status === 'active') {
+        statusEl.textContent = 'Активна';
+        statusEl.className = 'badge ok';
+    } else if (u.status === 'expired') {
+        statusEl.textContent = 'Истекла';
+        statusEl.className = 'badge err';
+    } else if (u.status === 'banned') {
+        statusEl.textContent = 'Заблокирована';
+        statusEl.className = 'badge err';
+    } else {
+        statusEl.textContent = u.status || '—';
+        statusEl.className = 'badge warn';
+    }
+
+    document.getElementById('sub-end').textContent = formatRuDate(u.trial_end_date);
+
+    // Progress bar: считаем от (end - 30d) до end
+    const end = new Date(u.trial_end_date + 'T00:00:00');
+    if (!isNaN(end.getTime())) {
+        const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const now   = new Date();
+        const total = Math.max(1, daysBetween(start, end));
+        const used  = Math.min(total, Math.max(0, daysBetween(start, now)));
+        const remain = Math.max(0, daysBetween(now, end));
+        const pct    = Math.max(0, Math.min(100, Math.round(((total - used) / total) * 100)));
+        document.getElementById('sub-progress').style.width = pct + '%';
+        document.getElementById('sub-remain').textContent  = `Осталось ${remain} дн.`;
+        document.getElementById('sub-percent').textContent = `${pct}%`;
+    }
+
+    const toggle = document.getElementById('proxy-toggle');
+    toggle.checked = !!u.proxy_enabled;
+    toggle.disabled = false;
+}
+
+document.getElementById('proxy-toggle').addEventListener('change', async function() {
+    const checked = this.checked;
+    this.disabled = true;
+    try {
+        const r = await api('/api/proxy/toggle', {
+            method: 'POST',
+            body: JSON.stringify({ enabled: checked }),
+        });
+        state.user.proxy_enabled = !!r.proxy_enabled;
+        if (!r.xray_updated) {
+            showToast('⚠️ Сохранено, но Xray не обновился');
+        } else {
+            showToast(checked ? '🟢 Прокси включён' : '🔴 Прокси выключен');
+        }
+    } catch (exc) {
+        this.checked = !checked;
+        showToast('❌ ' + exc.message);
+    } finally {
+        this.disabled = false;
+    }
+});
+
+// ─── Key ──────────────────────────────────────────────────────
+async function loadKey() {
+    const loader  = document.getElementById('key-loader');
+    const error   = document.getElementById('key-error');
+    const content = document.getElementById('key-content');
+    const errMsg  = document.getElementById('key-error-msg');
+    loader.style.display  = 'block';
+    error.style.display   = 'none';
+    content.style.display = 'none';
+
+    try {
+        const r = await api('/api/user/key');
+        state.vlessLink = r.vless_link;
+        document.getElementById('vless-text').textContent = r.vless_link;
+
+        const qrBox = document.getElementById('qr-container');
+        qrBox.innerHTML = '';
+        new QRCode(qrBox, {
+            text:        r.vless_link,
+            width:       200,
+            height:      200,
+            colorDark:   '#000000',
+            colorLight:  '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M,
+        });
+        state.qrGenerated = true;
+
+        loader.style.display  = 'none';
+        content.style.display = 'block';
+    } catch (exc) {
+        loader.style.display = 'none';
+        error.style.display  = 'block';
+        errMsg.textContent = exc.message || 'Не удалось получить ключ';
+    }
+}
+
+function copyKey() {
+    const link = state.vlessLink;
+    if (!link) return;
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(link).then(
+            () => showToast('✅ Скопировано'),
+            () => fallbackCopy(link),
+        );
+    } else {
+        fallbackCopy(link);
+    }
+}
+function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+        document.execCommand('copy');
+        showToast('✅ Скопировано');
+    } catch (_) {
+        showToast('❌ Не удалось скопировать');
+    }
+    document.body.removeChild(ta);
+}
+
+// ─── Plans ────────────────────────────────────────────────────
+const PLAN_DATA = {
+    1: { name: '1 месяц',   price: '3.00'  },
+    2: { name: '3 месяца',  price: '8.00'  },
+    3: { name: '6 месяцев', price: '14.00' },
+};
+
+function selectPlan(id) {
+    state.selectedPlan = id;
+    document.querySelectorAll('.plan').forEach(p =>
+        p.classList.toggle('selected', Number(p.dataset.plan) === id)
+    );
+    updatePayBtn();
+}
+function selectAsset(asset) {
+    state.selectedAsset = asset;
+    document.querySelectorAll('.asset-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.asset === asset)
+    );
+    updatePayBtn();
+}
+function updatePayBtn() {
+    const p = PLAN_DATA[state.selectedPlan];
+    if (!p) return;
+    document.getElementById('pay-btn').textContent = `Оплатить ${p.price} ${state.selectedAsset}`;
+}
+
+async function startPayment() {
+    if (state.paying) return;
+    state.paying = true;
+    const btn = document.getElementById('pay-btn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Создаю инвойс…';
+    try {
+        const r = await api('/api/payment/create', {
+            method: 'POST',
+            body: JSON.stringify({
+                plan_id: state.selectedPlan,
+                asset:   state.selectedAsset,
+            }),
+        });
+        if (r.pay_url) {
+            openLink(r.pay_url);
+            showToast('Открываю оплату…');
+        } else {
+            showToast('❌ Пустая ссылка оплаты');
+        }
+    } catch (exc) {
+        showToast('❌ ' + exc.message);
+    } finally {
+        state.paying = false;
+        btn.disabled = false;
+        btn.textContent = original;
+    }
+}
+
+// ─── Instructions ─────────────────────────────────────────────
+function showInstr(platform) {
+    document.querySelectorAll('.tabs button').forEach(b =>
+        b.classList.toggle('active', b.dataset.platform === platform)
+    );
+    document.querySelectorAll('.instr-panel').forEach(p =>
+        p.classList.toggle('active', p.dataset.platform === platform)
+    );
+}
+
+// ─── Settings ─────────────────────────────────────────────────
+function renderSettings(u) {
+    document.getElementById('set-tg-id').textContent  = u.telegram_id;
+    document.getElementById('set-service').textContent =
+        u.status === 'active' ? '🟢 Работает' : '🔴 Нет доступа';
+}
+
+// ─── Init ─────────────────────────────────────────────────────
+loadProfile();
+</script>
+
+</body>
+</html>
