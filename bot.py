@@ -1,3 +1,4 @@
+PAYMENT_INFO = "Для продления подписки напишите @admin"
 import telebot
 import sqlite3
 from telebot import types
@@ -42,7 +43,7 @@ SERVER_ADDRESS = "141.105.143.224"
 SERVER_PORT = 443
 REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
 REALITY_SHORT_ID = "a028507ab5b114b4"
-REALITY_SNI = "www.yahoo.com"
+REALITY_SNI = "www.microsoft.com"
 
 # Память для отзывов
 user_states = {}
@@ -64,7 +65,8 @@ def generate_vless_link(user_uuid, tag="olegych"):
         "pbk": REALITY_PUBLIC_KEY,
         "sid": REALITY_SHORT_ID,
         "flow": "xtls-rprx-vision",
-        "type": "tcp"
+        "type": "tcp",
+        "fp": "firefox"
     }
     query_string = urllib.parse.urlencode(params)
     link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#{tag}"
