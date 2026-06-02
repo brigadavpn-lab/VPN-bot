@@ -42,7 +42,12 @@ SERVER_ADDRESS = "141.105.143.224"
 SERVER_PORT = 443
 REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
 REALITY_SHORT_ID = "a028507ab5b114b4"
-REALITY_SNI = "www.yahoo.com"
+REALITY_SNI = "www.microsoft.com"
+
+# ── XHTTP inbound (усиленный транспорт против ТСПУ) ──────────
+XHTTP_PORT = 2083
+XHTTP_PATH = "/download"
+XHTTP_MODE = "stream-one"   # stream-one ОБЯЗАТЕЛЕН для Hiddify/sing-box
 
 # Память для отзывов
 user_states = {}
@@ -64,6 +69,23 @@ def generate_vless_link(user_uuid):
     query_string = urllib.parse.urlencode(params)
     link = f"vless://{user_uuid}@{SERVER_ADDRESS}:{SERVER_PORT}?{query_string}#BetaTest"
     return link
+
+def generate_xhttp_link(user_uuid, tag="olegych-xhttp"):
+    """Генерация ссылки VLESS XHTTP Reality (усиленный транспорт).
+    flow ОТСУТСТВУЕТ — xtls-rprx-vision несовместим с XHTTP.
+    """
+    params = {
+        "security": "reality",
+        "sni": REALITY_SNI,
+        "pbk": REALITY_PUBLIC_KEY,
+        "sid": REALITY_SHORT_ID,
+        "type": "xhttp",
+        "path": XHTTP_PATH,
+        "mode": XHTTP_MODE,
+        "fp": "firefox",
+    }
+    query_string = urllib.parse.urlencode(params)
+    return f"vless://{user_uuid}@{SERVER_ADDRESS}:{XHTTP_PORT}?{query_string}#{tag}"
 
 def generate_qr_code(link):
     """Генерация QR-кода"""
@@ -228,6 +250,10 @@ def build_profile_view(user_id):
     kb.add(types.InlineKeyboardButton(
         f"{proxy_emoji} Прокси (смена IP): {proxy_label}",
         callback_data="proxy_toggle",
+    ))
+    kb.add(types.InlineKeyboardButton(
+        "⚡ XHTTP ключ (усиленный)",
+        callback_data="get_xhttp_key",
     ))
     kb.add(types.InlineKeyboardButton("🔙 В меню", callback_data="back_menu"))
     return profile_text, kb
@@ -515,6 +541,41 @@ def handle_callback(call):
         bot.send_message(user_id, "✍️ Напишите свой вопрос следующим сообщением, я передам его Админу.")
         # Запоминаем, что этот человек хочет написать админу
         user_states[user_id] = "waiting_feedback"
+
+    # 7. XHTTP КЛЮЧ (усиленный транспорт)
+    elif call.data == "get_xhttp_key":
+        if not check_user_exists(user_id):
+            bot.answer_callback_query(call.id, "Сначала получите доступ к VPN")
+            return
+
+        bot.answer_callback_query(call.id, "⏳ Формирую XHTTP ключ...")
+
+        conn = sqlite3.connect(DB_NAME)
+        cur = conn.cursor()
+        cur.execute("SELECT xray_uuid FROM users WHERE telegram_id=?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row or not row[0]:
+            bot.send_message(user_id, "❌ UUID не найден. Напишите в поддержку.")
+            return
+
+        xhttp_link = generate_xhttp_link(row[0])
+        qr = generate_qr_code(xhttp_link)
+
+        bot.send_photo(
+            user_id, qr,
+            caption="Отсканируйте QR-код в v2rayNG / V2Box / Hiddify",
+        )
+        bot.send_message(
+            user_id,
+            "⚡ *XHTTP ключ (усиленный транспорт)*\n\n"
+            "Используйте, если обычный ключ стал нестабильным.\n\n"
+            "📱 Лучше всего работает в v2rayNG и V2Box.\n"
+            "Или скопируйте ссылку:\n"
+            f"`{xhttp_link}`",
+            parse_mode="Markdown",
+        )
 # --- ЗАПУСК ---
 print("Бот запущен...")
 bot.infinity_polling(timeout=10, long_polling_timeout=5)
