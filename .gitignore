@@ -11,3 +11,4 @@ monitoring.log
 config/xray-config.json
 .env.vps-backup
 *.deb
+traffic.log
