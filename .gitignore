@@ -8,3 +8,7 @@ __pycache__/
 repomix-output.xml
 monitoring.log
 *.local-backup
+config/xray-config.json
+.env.vps-backup
+*.deb
+traffic.log

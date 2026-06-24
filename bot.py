@@ -37,12 +37,12 @@ PDF_PATH = "/root/vpn-bot/instruction.pdf"
 # Лимиты
 BETA_LIMIT = 30
 
-# Настройки VLESS (Твои данные)
+# Настройки VLESS (маска GitHub, порт 8443)
 SERVER_ADDRESS = "141.105.143.224"
-SERVER_PORT = 443
-REALITY_PUBLIC_KEY = "O_actbJXCoMijlOyrLMWWKQQ7a3tEYZe3Hix86Yr3kM"
-REALITY_SHORT_ID = "a028507ab5b114b4"
-REALITY_SNI = "www.yahoo.com"
+SERVER_PORT = 8443
+REALITY_PUBLIC_KEY = "hxr1DDgcXi1wcNXVz1YHkhqEsabDvx4TdwHkVSl_bz0"
+REALITY_SHORT_ID = "0118b5bb066399c4"
+REALITY_SNI = "github.com"
 
 # Память для отзывов
 user_states = {}
@@ -52,7 +52,7 @@ bot = telebot.TeleBot(TOKEN)
 # --- ФУНКЦИИ ---
 
 def generate_vless_link(user_uuid):
-    """Генерация ссылки VLESS Reality"""
+    """Генерация ссылки VLESS Reality (маска GitHub, порт 8443)"""
     params = {
         "security": "reality",
         "sni": REALITY_SNI,
@@ -89,7 +89,7 @@ def create_xray_user():
         }
         with open(CONFIG_FILE_PATH, 'r') as f:
             data = json.load(f)
-        data['inbounds'][1]['settings']['clients'].append(new_client)
+        data['inbounds'][2]['settings']['clients'].append(new_client)
         with open(CONFIG_FILE_PATH, 'w') as f:
             json.dump(data, f, indent=2)
         subprocess.run(["systemctl", "restart", "xray"], check=True)
